@@ -1,0 +1,27 @@
+{
+  "name": "paulhollmann/vatsim-datafeed",
+  "description": "VATSIM data parser",
+  "homepage": "http://github.com/paulhollmann",
+  "type": "library",
+  "license": "BSD-3-Clause",
+  "authors": [
+    {
+      "name": "Paul Hollmann",
+      "email": "webmaster@vatger.de",
+      "homepage": "https://vatger.de"
+    }
+  ],
+  "require": {
+    "php": "^8.0",
+    "ext-curl": "*",
+    "illuminate/cache": "^v10"
+  },
+  "require-dev": {
+  },
+  "autoload": {
+    "psr-4": {
+      "VatsimDatafeed\\": "src/VatsimDatafeed"
+    }
+  },
+  "minimum-stability": "stable"
+}
