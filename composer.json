@@ -14,13 +14,13 @@
   "require": {
     "php": "^8.0",
     "ext-curl": "*",
-    "illuminate/cache": "^v10"
+    "illuminate/cache": "^v10|11"
   },
   "require-dev": {
   },
   "autoload": {
     "psr-4": {
-      "VatsimDatafeed\\": "src/VatsimDatafeed"
+      "VatsimDatafeed\\": "src"
     }
   },
   "minimum-stability": "stable"
