@@ -12,9 +12,9 @@
     }
   ],
   "require": {
-    "php": "^8.0",
+    "php": "^8.3",
     "ext-curl": "*",
-    "illuminate/cache": "^v10|11"
+    "illuminate/cache": "^^v11"
   },
   "require-dev": {
   },
