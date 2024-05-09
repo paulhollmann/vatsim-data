@@ -20,7 +20,7 @@
   },
   "autoload": {
     "psr-4": {
-      "VatsimDatafeed\\": "src/VatsimDatafeed"
+      "VatsimDatafeed\\": "src/"
     }
   },
   "minimum-stability": "stable"
