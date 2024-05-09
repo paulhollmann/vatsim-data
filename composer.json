@@ -14,7 +14,7 @@
   "require": {
     "php": "^8.3",
     "ext-curl": "*",
-    "illuminate/cache": "^^v11"
+    "illuminate/cache": "^v11"
   },
   "require-dev": {
   },
