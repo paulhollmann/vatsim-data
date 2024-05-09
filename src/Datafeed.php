@@ -1,6 +1,6 @@
 <?php
 
-namespace VatsimDatafeed\VatsimDatafeed;
+namespace VatsimDatafeed;
 
 use Illuminate\Support\Facades\Cache;
 
