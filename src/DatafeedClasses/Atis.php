@@ -30,7 +30,7 @@ class Atis
 		$instance->server = $data->server;
 		$instance->visualRange = $data->visual_range;
 		$instance->atisCode = $data->atis_code ?? null;
-		$instance->textAtis = $data->text_atis;
+		$instance->textAtis = $data->text_atis ?? [];
 		$instance->lastUpdated = $data->last_updated;
 		$instance->logonTime = $data->logon_time;
 		return $instance;
