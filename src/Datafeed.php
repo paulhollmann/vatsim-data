@@ -3,57 +3,80 @@
 namespace VatsimDatafeed;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Str;
+use VatsimDatafeed\DatafeedClasses\Controllers;
+use VatsimDatafeed\DatafeedClasses\Pilots;
+use VatsimDatafeed\DatafeedClasses\RootObject;
 
 class Datafeed
 {
-    protected static string $_baseStatusUrl = 'https://status.vatsim.net/status.json';
-
-    public static function get()
+    private static function do_curl(string $url): string|bool
     {
-        return Cache::remember('net.vatsim.datafeed', 59, function () {
-            $status = json_decode(self::_downloadStatusFile());
-            if ($status == null || $status == false) {
-                Cache::forget('net.vatsim.status');
-                return false;
-            }
-            $availableUrls = $status->data->v3;
-            $url = $availableUrls[rand(0, sizeof($availableUrls) - 1)];
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
+        $data = curl_exec($ch);
+        curl_close($ch);
+        return $data;
+    }
 
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HEADER, false);
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
-            $data = curl_exec($ch);
-            curl_close($ch);
-            return $data;
+    public static function get(): ?RootObject
+    {
+        $use_df_cache = Config::get('vatsimdatafeed.use_datafeed_cache');
+        $url_cached = Config::get('vatsimdatafeed.datafeed_cached_url');
+        $url_uncached = Config::get('vatsimdatafeed.datafeed_uncached_url');
+        $url = $use_df_cache ? $url_cached : $url_uncached;
+
+        $cache_key = Config::get('vatsimdatafeed.cache_key');
+
+        return Cache::remember($cache_key.'get', 59, function () use ($use_df_cache, $url) {
+                $data = self::do_curl($url);
+                if(!$data)
+                    return null;
+                if ($use_df_cache)
+                    return RootObject::fromJson(json_decode($data)?->data);
+                else
+                    return RootObject::fromJson(json_decode($data));
         });
     }
 
-    public static function pilots()
+    /**
+     * @return Pilots[]
+     */
+    public static function Pilots(): array
     {
         $df = self::get();
-        if ($df !== false) {
-            return json_decode($df)->pilots;
-        } else {
-            return [];
-        }
+        return $df ? $df->pilots : [];
     }
 
-
-    private static function _downloadStatusFile():string
+    /**
+     * @return Controllers[]
+     */
+    public static function Controllers(): array
     {
-        return Cache::remember('net.vatsim.status', 24 * 60 * 60, function () {
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, self::$_baseStatusUrl);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HEADER, false);
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
-            $data = curl_exec($ch);
-            curl_close($ch);
-            return $data;
-        });
+        $df = self::get();
+        return $df ? $df->controllers : [];
+    }
+    /**
+     * @return Controllers[]
+     */
+    public static function ControllersLocal(): array
+    {
+        $resultList = [];
+        $atcs = self::Controllers();
+        $local_atc_pattern = Config::get('vatsimdatafeed.local_atc_pattern');
+        foreach ($atcs as $a) {
+            if (Str::contains($a->callsign, 'OBS')) {
+                continue;
+            }
+            if (preg_match($local_atc_pattern, $a->callsign) == 1) {
+                $resultList[] = $a;
+            }
+        }
+        return $resultList;
     }
 }
