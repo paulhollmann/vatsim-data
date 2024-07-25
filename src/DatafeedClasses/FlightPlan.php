@@ -1,45 +1,81 @@
 <?php
 
-namespace VatsimDatafeed\DatafeedClasses;;
+namespace VatsimDatafeed\DatafeedClasses;
 
 class FlightPlan
 {
-	public string $flightRules;
+	public string $flight_rules;
 	public string $aircraft;
-	public string $aircraftFaa;
-	public string $aircraftShort;
+	public string $aircraft_faa;
+	public string $aircraft_short;
 	public string $departure;
 	public string $arrival;
 	public string $alternate;
-	public string $cruiseTas;
+	public string $cruise_tas;
 	public string $altitude;
 	public string $deptime;
-	public string $enrouteTime;
-	public string $fuelTime;
+	public string $enroute_time;
+	public string $fuel_time;
 	public string $remarks;
 	public string $route;
-	public int $revisionId;
-	public string $assignedTransponder;
+	public int $revision_id;
+	public string $assigned_transponder;
+
+	public function __construct(
+		string $flight_rules,
+		string $aircraft,
+		string $aircraft_faa,
+		string $aircraft_short,
+		string $departure,
+		string $arrival,
+		string $alternate,
+		string $cruise_tas,
+		string $altitude,
+		string $deptime,
+		string $enroute_time,
+		string $fuel_time,
+		string $remarks,
+		string $route,
+		int $revision_id,
+		string $assigned_transponder
+	) {
+		$this->flight_rules = $flight_rules;
+		$this->aircraft = $aircraft;
+		$this->aircraft_faa = $aircraft_faa;
+		$this->aircraft_short = $aircraft_short;
+		$this->departure = $departure;
+		$this->arrival = $arrival;
+		$this->alternate = $alternate;
+		$this->cruise_tas = $cruise_tas;
+		$this->altitude = $altitude;
+		$this->deptime = $deptime;
+		$this->enroute_time = $enroute_time;
+		$this->fuel_time = $fuel_time;
+		$this->remarks = $remarks;
+		$this->route = $route;
+		$this->revision_id = $revision_id;
+		$this->assigned_transponder = $assigned_transponder;
+	}
 
 	public static function fromJson(\stdClass $data): self
 	{
-		$instance = new self();
-		$instance->flightRules = $data->flight_rules;
-		$instance->aircraft = $data->aircraft;
-		$instance->aircraftFaa = $data->aircraft_faa;
-		$instance->aircraftShort = $data->aircraft_short;
-		$instance->departure = $data->departure;
-		$instance->arrival = $data->arrival;
-		$instance->alternate = $data->alternate;
-		$instance->cruiseTas = $data->cruise_tas;
-		$instance->altitude = $data->altitude;
-		$instance->deptime = $data->deptime;
-		$instance->enrouteTime = $data->enroute_time;
-		$instance->fuelTime = $data->fuel_time;
-		$instance->remarks = $data->remarks;
-		$instance->route = $data->route;
-		$instance->revisionId = $data->revision_id;
-		$instance->assignedTransponder = $data->assigned_transponder;
-		return $instance;
+		return new self(
+			$data->flight_rules,
+			$data->aircraft,
+			$data->aircraft_faa,
+			$data->aircraft_short,
+			$data->departure,
+			$data->arrival,
+			$data->alternate,
+			$data->cruise_tas,
+			$data->altitude,
+			$data->deptime,
+			$data->enroute_time,
+			$data->fuel_time,
+			$data->remarks,
+			$data->route,
+			$data->revision_id,
+			$data->assigned_transponder
+		);
 	}
 }

@@ -1,19 +1,29 @@
 <?php
 
-namespace VatsimDatafeed\DatafeedClasses;;
+namespace VatsimDatafeed\DatafeedClasses;
 
 class PilotRatings
 {
 	public int $id;
-	public string $shortName;
-	public string $longName;
+	public string $short_name;
+	public string $long_name;
+
+	public function __construct(
+		int $id,
+		string $short_name,
+		string $long_name
+	) {
+		$this->id = $id;
+		$this->short_name = $short_name;
+		$this->long_name = $long_name;
+	}
 
 	public static function fromJson(\stdClass $data): self
 	{
-		$instance = new self();
-		$instance->id = $data->id;
-		$instance->shortName = $data->short_name;
-		$instance->longName = $data->long_name;
-		return $instance;
+		return new self(
+			$data->id,
+			$data->short_name,
+			$data->long_name
+		);
 	}
 }

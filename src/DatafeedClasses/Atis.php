@@ -1,6 +1,6 @@
 <?php
 
-namespace VatsimDatafeed\DatafeedClasses;;
+namespace VatsimDatafeed\DatafeedClasses;
 
 class Atis
 {
@@ -11,28 +11,59 @@ class Atis
 	public int $facility;
 	public int $rating;
 	public string $server;
-	public int $visualRange;
-	public ?string $atisCode;
+	public int $visual_range;
+	public ?string $atis_code;
 	/** @var string[] */
-	public array $textAtis;
-	public string $lastUpdated;
-	public string $logonTime;
+	public array $text_atis;
+	public string $last_updated;
+	public string $logon_time;
+
+	/**
+	 * @param string[] $text_atis
+	 */
+	public function __construct(
+		int $cid,
+		string $name,
+		string $callsign,
+		string $frequency,
+		int $facility,
+		int $rating,
+		string $server,
+		int $visual_range,
+		?string $atis_code,
+		array $text_atis,
+		string $last_updated,
+		string $logon_time
+	) {
+		$this->cid = $cid;
+		$this->name = $name;
+		$this->callsign = $callsign;
+		$this->frequency = $frequency;
+		$this->facility = $facility;
+		$this->rating = $rating;
+		$this->server = $server;
+		$this->visual_range = $visual_range;
+		$this->atis_code = $atis_code;
+		$this->text_atis = $text_atis;
+		$this->last_updated = $last_updated;
+		$this->logon_time = $logon_time;
+	}
 
 	public static function fromJson(\stdClass $data): self
 	{
-		$instance = new self();
-		$instance->cid = $data->cid;
-		$instance->name = $data->name;
-		$instance->callsign = $data->callsign;
-		$instance->frequency = $data->frequency;
-		$instance->facility = $data->facility;
-		$instance->rating = $data->rating;
-		$instance->server = $data->server;
-		$instance->visualRange = $data->visual_range;
-		$instance->atisCode = $data->atis_code ?? null;
-		$instance->textAtis = $data->text_atis ?? [];
-		$instance->lastUpdated = $data->last_updated;
-		$instance->logonTime = $data->logon_time;
-		return $instance;
+		return new self(
+			$data->cid,
+			$data->name,
+			$data->callsign,
+			$data->frequency,
+			$data->facility,
+			$data->rating,
+			$data->server,
+			$data->visual_range,
+			$data->atis_code ?? null,
+			$data->text_atis,
+			$data->last_updated,
+			$data->logon_time
+		);
 	}
 }

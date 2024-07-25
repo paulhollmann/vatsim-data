@@ -1,6 +1,6 @@
 <?php
 
-namespace VatsimDatafeed\DatafeedClasses;;
+namespace VatsimDatafeed\DatafeedClasses;
 
 class Ratings
 {
@@ -8,12 +8,22 @@ class Ratings
 	public string $short;
 	public string $long;
 
+	public function __construct(
+		int $id,
+		string $short,
+		string $long
+	) {
+		$this->id = $id;
+		$this->short = $short;
+		$this->long = $long;
+	}
+
 	public static function fromJson(\stdClass $data): self
 	{
-		$instance = new self();
-		$instance->id = $data->id;
-		$instance->short = $data->short;
-		$instance->long = $data->long;
-		return $instance;
+		return new self(
+			$data->id,
+			$data->short,
+			$data->long
+		);
 	}
 }

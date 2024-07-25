@@ -54,6 +54,19 @@ class Datafeed
         return $df ? $df->pilots : [];
     }
 
+    public static function PilotsArrivingAerodrome(string $icao): array
+    {
+        $pilots = self::Pilots();
+
+        $results = [];
+        foreach ($pilots as $p) {
+            if ($p->flight_plan != null && $p->flight_plan->arrival == $icao) {
+                $results[] = $p;
+            }
+        }
+        return $results;
+    }
+
     /**
      * @return Controllers[]
      */
