@@ -5,6 +5,7 @@ namespace VatsimDatafeed;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
+use VatsimDatafeed\DatafeedClasses\Atis;
 use VatsimDatafeed\DatafeedClasses\Controllers;
 use VatsimDatafeed\DatafeedClasses\Pilots;
 use VatsimDatafeed\DatafeedClasses\RootObject;
@@ -61,6 +62,7 @@ class Datafeed
         $df = self::get();
         return $df ? $df->controllers : [];
     }
+
     /**
      * @return Controllers[]
      */
@@ -79,4 +81,26 @@ class Datafeed
         }
         return $resultList;
     }
+
+    /**
+     * @return Atis[]
+     */
+    public static function Atis(): array
+    {
+        $df = self::get();
+        return $df ? $df->atis : [];
+    }
+
+    public static function AtisAerodrome(string $icao): ?Atis
+    {
+        $all_atises = self::Atis();
+        foreach ($all_atises as $atis) {
+            if (Str::substr($atis?->callsign, 0, 4) == $icao) {
+                return $atis;
+            }
+        }
+        return null;
+    }
+
+
 }
