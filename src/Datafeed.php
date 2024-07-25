@@ -33,7 +33,7 @@ class Datafeed
 
         $cache_key = Config::get('vatsimdatafeed.cache_key');
 
-        return Cache::remember($cache_key.'get', 59, function () use ($use_df_cache, $url) {
+        return Cache::remember($cache_key.'datafeed.get', 20, function () use ($use_df_cache, $url) {
                 $data = self::do_curl($url);
                 if(!$data)
                     return null;
