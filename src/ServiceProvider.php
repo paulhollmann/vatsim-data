@@ -1,5 +1,5 @@
 <?php
-namespace VatsimDatafeed;
+namespace VatsimData;
 class ServiceProvider extends \Illuminate\Support\ServiceProvider
 {
     /**
@@ -8,13 +8,13 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
     public function boot(): void
     {
         $this->publishes([
-            __DIR__.'/../config/vatsimdatafeed.php' => config_path('vatsimdatafeed.php'),
+            __DIR__.'/../config/vatsimdata.php' => config_path('vatsimdata.php'),
         ]);
     }
 
     public function register(): void{
         $this->mergeConfigFrom(
-            __DIR__.'/../config/vatsimdatafeed.php', 'vatsimdatafeed'
+            __DIR__.'/../config/vatsimdata.php', 'vatsimdata'
         );
     }
 }

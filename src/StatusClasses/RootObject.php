@@ -1,7 +1,7 @@
 <?php
 
 
-namespace VatsimDatafeed\StatusClasses;
+namespace VatsimData\StatusClasses;
 
 class RootObject
 {

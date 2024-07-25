@@ -1,10 +1,9 @@
 <?php
 
-namespace VatsimDatafeed;
+namespace VatsimData;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use VatsimDatafeed\StatusClasses\RootObject;
 
 class Metar
 {
@@ -27,7 +26,7 @@ class Metar
 
     public static function get(string $icao):?string
     {
-        $cache_key = Config::get('vatsimdatafeed.cache_key');
+        $cache_key = Config::get('VatsimData.cache_key');
 
         return Cache::remember($cache_key."metar.get.$icao",  2*60, function () use ($icao) {
             $data = self::do_curl($icao);

@@ -1,6 +1,6 @@
 <?php
 
-namespace VatsimDatafeed\DatafeedClasses;
+namespace VatsimData\DatafeedClasses;
 
 class Prefiles
 {

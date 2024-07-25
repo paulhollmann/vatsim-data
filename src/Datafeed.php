@@ -1,14 +1,14 @@
 <?php
 
-namespace VatsimDatafeed;
+namespace VatsimData;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
-use VatsimDatafeed\DatafeedClasses\Atis;
-use VatsimDatafeed\DatafeedClasses\Controllers;
-use VatsimDatafeed\DatafeedClasses\Pilots;
-use VatsimDatafeed\DatafeedClasses\RootObject;
+use VatsimData\DatafeedClasses\Atis;
+use VatsimData\DatafeedClasses\Controllers;
+use VatsimData\DatafeedClasses\Pilots;
+use VatsimData\DatafeedClasses\RootObject;
 
 class Datafeed
 {

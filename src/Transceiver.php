@@ -4,14 +4,15 @@ namespace VatsimData;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use VatsimData\StatusClasses\RootObject;
+use VatsimData\TransceiverClasses\RootObject;
+use VatsimData\TransceiverClasses\TransceiverOwner;
 
-class Statusfile
+class Transceiver
 {
-
     private static function do_curl(): string|bool
     {
-        $url = Config::get('vatsimdata.status_url');
+        $urls = Statusfile::get()->data->transceivers;
+        $url = $urls[array_rand($urls)];
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -24,10 +25,15 @@ class Statusfile
 
         return $data;
     }
-    public static function get(): ?RootObject
+
+    /**
+     * @return TransceiverOwner[]
+     */
+    public static function get():array
     {
-        $cache_key = Config::get('vatsimdata.cache_key');
-        return Cache::remember($cache_key.'status.get',  60 * 60, function () {
+        $cache_key = Config::get('vatsimdatafeed.cache_key');
+
+        return Cache::remember($cache_key."transceiver.get",  60, function () {
             $data = self::do_curl();
             if(!$data)
                 return null;
