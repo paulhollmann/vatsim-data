@@ -61,7 +61,7 @@ class Atis
 			$data->server,
 			$data->visual_range,
 			$data->atis_code ?? null,
-			$data->text_atis,
+			$data->text_atis ?? [],
 			$data->last_updated,
 			$data->logon_time
 		);
