@@ -31,7 +31,7 @@ class Transceiver
      */
     public static function get():array
     {
-        $cache_key = Config::get('vatsimdatafeed.cache_key');
+        $cache_key = Config::get('vatsimdata.cache_key');
 
         return Cache::remember($cache_key."transceiver.get",  60, function () {
             $data = self::do_curl();

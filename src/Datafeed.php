@@ -27,12 +27,12 @@ class Datafeed
 
     public static function get(): ?RootObject
     {
-        $use_df_cache = Config::get('vatsimdatafeed.use_datafeed_cache');
-        $url_cached = Config::get('vatsimdatafeed.datafeed_cached_url');
-        $url_uncached = Config::get('vatsimdatafeed.datafeed_uncached_url');
+        $use_df_cache = Config::get('vatsimdata.use_datafeed_cache');
+        $url_cached = Config::get('vatsimdata.datafeed_cached_url');
+        $url_uncached = Config::get('vatsimdata.datafeed_uncached_url');
         $url = $use_df_cache ? $url_cached : $url_uncached;
 
-        $cache_key = Config::get('vatsimdatafeed.cache_key');
+        $cache_key = Config::get('vatsimdata.cache_key');
 
         return Cache::remember($cache_key.'datafeed.get', 20, function () use ($use_df_cache, $url) {
                 $data = self::do_curl($url);

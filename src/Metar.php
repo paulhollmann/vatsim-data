@@ -26,7 +26,7 @@ class Metar
 
     public static function get(string $icao):?string
     {
-        $cache_key = Config::get('VatsimData.cache_key');
+        $cache_key = Config::get('vatsimdata.cache_key');
 
         return Cache::remember($cache_key."metar.get.$icao",  2*60, function () use ($icao) {
             $data = self::do_curl($icao);
