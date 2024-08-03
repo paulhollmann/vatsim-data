@@ -83,7 +83,7 @@ class Datafeed
     {
         $resultList = [];
         $atcs = self::Controllers();
-        $local_atc_pattern = Config::get('vatsimdatafeed.local_atc_pattern');
+        $local_atc_pattern = Config::get('vatsimdata.local_atc_pattern');
         foreach ($atcs as $a) {
             if (Str::contains($a->callsign, 'OBS')) {
                 continue;
