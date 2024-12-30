@@ -72,7 +72,7 @@ class FlightPlan
         $this->assigned_transponder = $assigned_transponder;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->flight_rules,

@@ -19,7 +19,7 @@ class Data
     /** @var string[] */
     public array $serversAll;
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         $instance = new self;
         $instance->v3 = $data->v3;

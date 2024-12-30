@@ -68,7 +68,7 @@ class RootObject
         $this->military_ratings = $military_ratings;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             General::fromJson($data->general),

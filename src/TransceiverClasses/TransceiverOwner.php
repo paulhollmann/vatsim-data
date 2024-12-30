@@ -10,7 +10,7 @@ class TransceiverOwner
     public array $transceivers;
 
     /**
-     * @param Transceiver[] $transceivers
+     * @param  Transceiver[]  $transceivers
      */
     public function __construct(string $callsign, array $transceivers)
     {
@@ -18,7 +18,7 @@ class TransceiverOwner
         $this->transceivers = $transceivers;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->callsign,

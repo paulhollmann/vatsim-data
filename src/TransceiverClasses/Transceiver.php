@@ -35,7 +35,7 @@ class Transceiver
         $this->frequencyString = substr(strval($frequency), 0, 3).'.'.substr(strval($frequency), 3, 3);
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->id,

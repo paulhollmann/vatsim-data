@@ -28,7 +28,7 @@ class Prefile
         $this->last_updated = $last_updated;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->cid,

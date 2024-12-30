@@ -60,7 +60,7 @@ class Atis
         $this->logon_time = $logon_time;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->cid,

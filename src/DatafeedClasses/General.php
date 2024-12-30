@@ -32,7 +32,7 @@ class General
         $this->unique_users = $unique_users;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->version,

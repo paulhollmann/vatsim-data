@@ -12,7 +12,7 @@ class RootObject
     /** @var string[] */
     public array $metar;
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         $instance = new self;
         $instance->data = Data::fromJson($data->data);

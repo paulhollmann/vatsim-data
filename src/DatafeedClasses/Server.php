@@ -36,7 +36,7 @@ class Server
         $this->is_sweatbox = $is_sweatbox;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): self
     {
         return new self(
             $data->ident,
