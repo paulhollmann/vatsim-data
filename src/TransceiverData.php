@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Config;
 use VatsimData\TransceiverClasses\RootObject;
 use VatsimData\TransceiverClasses\TransceiverOwner;
 
-class Transceiver
+class TransceiverData
 {
     private static function do_curl(): string|bool
     {
@@ -29,16 +29,38 @@ class Transceiver
     /**
      * @return TransceiverOwner[]
      */
-    public static function get():array
+    public static function get(): array
     {
         $cache_key = Config::get('vatsimdata.cache_key');
 
-        return Cache::remember($cache_key."transceiver.get",  60, function () {
+        return Cache::remember($cache_key.'transceiver.get', 60, function () {
             $data = self::do_curl();
-            if(!$data)
+            if (! $data) {
                 return null;
-            else
-                return RootObject::fromJson(json_decode($data));
+            } else {
+                $decoded = json_decode($data);
+            }
+
+            return RootObject::fromJson($decoded);
+        });
+    }
+
+    public static function Owner(string $id): ?TransceiverOwner
+    {
+        $cache_key = Config::get('vatsimdata.cache_key');
+
+        $id = strtoupper($id);
+        $id = preg_replace('/[^A-Z0-9_]/', '', $id);
+
+        return Cache::remember($cache_key.'transceiver.TransceiverOwner.'.$id, 59, function () use ($id) {
+            $owners = self::get();
+            foreach ($owners as $owner) {
+                if ($owner->callsign == $id) {
+                    return $owner;
+                }
+            }
+
+            return null;
         });
     }
 }

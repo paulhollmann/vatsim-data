@@ -4,26 +4,27 @@ namespace VatsimData\TransceiverClasses;
 
 class TransceiverOwner
 {
-	public string $callsign;
-	/** @var Transceivers[] */
-	public array $transceivers;
+    public string $callsign;
 
-	/**
-	 * @param Transceivers[] $transceivers
-	 */
-	public function __construct(string $callsign, array $transceivers)
-	{
-		$this->callsign = $callsign;
-		$this->transceivers = $transceivers;
-	}
+    /** @var Transceiver[] */
+    public array $transceivers;
 
-	public static function fromJson(\stdClass $data): self
-	{
-		return new self(
-			$data->callsign,
-			array_map(static function($data) {
-				return Transceivers::fromJson($data);
-			}, $data->transceivers)
-		);
-	}
+    /**
+     * @param Transceiver[] $transceivers
+     */
+    public function __construct(string $callsign, array $transceivers)
+    {
+        $this->callsign = $callsign;
+        $this->transceivers = $transceivers;
+    }
+
+    public static function fromJson(\stdClass $data): self
+    {
+        return new self(
+            $data->callsign,
+            array_map(static function ($data) {
+                return Transceiver::fromJson($data);
+            }, $data->transceivers)
+        );
+    }
 }

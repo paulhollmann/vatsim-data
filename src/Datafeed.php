@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use VatsimData\DatafeedClasses\Atis;
-use VatsimData\DatafeedClasses\Controllers;
-use VatsimData\DatafeedClasses\Pilots;
+use VatsimData\DatafeedClasses\Controller;
+use VatsimData\DatafeedClasses\Pilot;
 use VatsimData\DatafeedClasses\RootObject;
 
 class Datafeed
@@ -22,6 +22,7 @@ class Datafeed
         curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
         $data = curl_exec($ch);
         curl_close($ch);
+
         return $data;
     }
 
@@ -35,22 +36,25 @@ class Datafeed
         $cache_key = Config::get('vatsimdata.cache_key');
 
         return Cache::remember($cache_key.'datafeed.get', 20, function () use ($use_df_cache, $url) {
-                $data = self::do_curl($url);
-                if(!$data)
-                    return null;
-                if ($use_df_cache)
-                    return RootObject::fromJson(json_decode($data)?->data);
-                else
-                    return RootObject::fromJson(json_decode($data));
+            $data = self::do_curl($url);
+            if (! $data) {
+                return null;
+            }
+            if ($use_df_cache) {
+                return RootObject::fromJson(json_decode($data)?->data);
+            } else {
+                return RootObject::fromJson(json_decode($data));
+            }
         });
     }
 
     /**
-     * @return Pilots[]
+     * @return Pilot[]
      */
     public static function Pilots(): array
     {
         $df = self::get();
+
         return $df ? $df->pilots : [];
     }
 
@@ -64,20 +68,22 @@ class Datafeed
                 $results[] = $p;
             }
         }
+
         return $results;
     }
 
     /**
-     * @return Controllers[]
+     * @return Controller[]
      */
     public static function Controllers(): array
     {
         $df = self::get();
+
         return $df ? $df->controllers : [];
     }
 
     /**
-     * @return Controllers[]
+     * @return Controller[]
      */
     public static function ControllersLocal(): array
     {
@@ -92,6 +98,7 @@ class Datafeed
                 $resultList[] = $a;
             }
         }
+
         return $resultList;
     }
 
@@ -101,6 +108,7 @@ class Datafeed
     public static function Atis(): array
     {
         $df = self::get();
+
         return $df ? $df->atis : [];
     }
 
@@ -116,8 +124,7 @@ class Datafeed
                 $matches[] = $atis;
             }
         }
+
         return $matches;
     }
-
-
 }

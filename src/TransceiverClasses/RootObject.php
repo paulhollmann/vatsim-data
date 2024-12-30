@@ -2,20 +2,15 @@
 
 namespace VatsimData\TransceiverClasses;
 
-use stdClass;
-
 class RootObject
 {
-
     /**
-     * @param stdClass|array $data
      * @return TransceiverOwner[]
      */
-    public static function fromJson(stdClass|array $data): array
+    public static function fromJson(array $data): array
     {
-        return
-            array_map(static function($data) {
-                return RootObject::fromJson($data);
-            }, $data->RootObject);
+        return array_map(static function ($single) {
+            return RootObject::fromJson($single);
+        }, $data);
     }
 }

@@ -1,5 +1,7 @@
 <?php
+
 namespace VatsimData;
+
 class ServiceProvider extends \Illuminate\Support\ServiceProvider
 {
     /**
@@ -12,7 +14,8 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         ]);
     }
 
-    public function register(): void{
+    public function register(): void
+    {
         $this->mergeConfigFrom(
             __DIR__.'/../config/vatsimdata.php', 'vatsimdata'
         );

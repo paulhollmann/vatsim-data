@@ -10,7 +10,7 @@ class Metar
     private static function do_curl(string $icao): string|bool
     {
         $metar_urls = Statusfile::get()->metar;
-        $url = $metar_urls[array_rand($metar_urls)] . '?id='. $icao;
+        $url = $metar_urls[array_rand($metar_urls)].'?id='.$icao;
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -24,17 +24,17 @@ class Metar
         return $data;
     }
 
-    public static function get(string $icao):?string
+    public static function get(string $icao): ?string
     {
         $cache_key = Config::get('vatsimdata.cache_key');
 
-        return Cache::remember($cache_key."metar.get.$icao",  2*60, function () use ($icao) {
+        return Cache::remember($cache_key."metar.get.$icao", 2 * 60, function () use ($icao) {
             $data = self::do_curl($icao);
-            if(!$data)
+            if (! $data) {
                 return null;
-            else
+            } else {
                 return $data;
+            }
         });
     }
-
 }

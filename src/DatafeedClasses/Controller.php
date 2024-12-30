@@ -2,7 +2,7 @@
 
 namespace VatsimData\DatafeedClasses;
 
-class Atis
+class Controller
 {
     public int $cid;
 
@@ -20,17 +20,15 @@ class Atis
 
     public int $visual_range;
 
-    public ?string $atis_code;
-
-    /** @var string[] */
-    public array $text_atis;
+    /** @var string[]|null */
+    public ?array $text_atis;
 
     public string $last_updated;
 
     public string $logon_time;
 
     /**
-     * @param  string[]  $text_atis
+     * @param  string[]|null  $text_atis
      */
     public function __construct(
         int $cid,
@@ -41,8 +39,7 @@ class Atis
         int $rating,
         string $server,
         int $visual_range,
-        ?string $atis_code,
-        array $text_atis,
+        ?array $text_atis,
         string $last_updated,
         string $logon_time
     ) {
@@ -54,15 +51,14 @@ class Atis
         $this->rating = $rating;
         $this->server = $server;
         $this->visual_range = $visual_range;
-        $this->atis_code = $atis_code;
         $this->text_atis = $text_atis;
         $this->last_updated = $last_updated;
         $this->logon_time = $logon_time;
     }
 
-    public static function fromJson(\stdClass $data): self
+    public static function fromJson(object $data): static
     {
-        return new self(
+        return new static (
             $data->cid,
             $data->name,
             $data->callsign,
@@ -71,8 +67,7 @@ class Atis
             $data->rating,
             $data->server,
             $data->visual_range,
-            $data->atis_code ?? null,
-            $data->text_atis ?? [],
+            $data->text_atis ?? null,
             $data->last_updated,
             $data->logon_time
         );

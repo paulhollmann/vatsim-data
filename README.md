@@ -1,6 +1,7 @@
 # VATSIM Data Laravel Library
 
-This Laravel library allows to easily query VATSIM's data feed, METAR information, and status data. It provides a simple and efficient way to access real-time data for virtual air traffic simulation, making it ideal for aviation enthusiasts, developers of flight simulation tools, or anyone interested in utilizing VATSIM's data.
+This Laravel library allows to easily query VATSIM's data feed, METAR information, and status data. It provides a simple and efficient way to access real-time data for virtual air traffic simulation,
+making it ideal for aviation enthusiasts, developers of flight simulation tools, or anyone interested in utilizing VATSIM's data.
 
 ## Installation
 
@@ -13,7 +14,6 @@ composer require paulhollmann/vatsim-data
 ## Configuration
 
 This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsimdata.php` and update the settings as needed.
-
 
 ## Usage
 
@@ -41,9 +41,19 @@ To fetch the latest METAR data for a specific airport:
 ```php
 use VatsimData\Metar;
 
-$metar = Metar::get('eddf'); // Replace 'eddf' with any ICAO code
+$metars = Metar::get('eddf'); // Replace 'eddf' with any ICAO code
 ```
-### And more to come
+
+### Fetch Transceiver Data
+
+To fetch the latest transceiver data for a specific controller:
+
+```php
+use VatsimData\TransceiverData;
+
+$owner = TransceiverData::Owner('eddf_n_app');
+$transceivers = $owner->transceivers;
+```
 
 ## Caching
 

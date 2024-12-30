@@ -8,7 +8,6 @@ use VatsimData\StatusClasses\RootObject;
 
 class Statusfile
 {
-
     private static function do_curl(): string|bool
     {
         $url = Config::get('vatsimdata.status_url');
@@ -24,15 +23,18 @@ class Statusfile
 
         return $data;
     }
+
     public static function get(): ?RootObject
     {
         $cache_key = Config::get('vatsimdata.cache_key');
-        return Cache::remember($cache_key.'status.get',  60 * 60, function () {
+
+        return Cache::remember($cache_key.'status.get', 60 * 60, function () {
             $data = self::do_curl();
-            if(!$data)
+            if (! $data) {
                 return null;
-            else
+            } else {
                 return RootObject::fromJson(json_decode($data));
+            }
         });
     }
 }
