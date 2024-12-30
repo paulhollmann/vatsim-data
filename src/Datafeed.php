@@ -104,15 +104,19 @@ class Datafeed
         return $df ? $df->atis : [];
     }
 
-    public static function AtisAerodrome(string $icao): ?Atis
+    /**
+     * @return Atis[]
+     */
+    public static function AtisAerodrome(string $icao): array
     {
         $all_atises = self::Atis();
+        $matches = [];
         foreach ($all_atises as $atis) {
             if (Str::substr($atis?->callsign, 0, 4) == $icao) {
-                return $atis;
+                $matches[] = $atis;
             }
         }
-        return null;
+        return $matches;
     }
 
 

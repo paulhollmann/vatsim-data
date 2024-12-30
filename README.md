@@ -12,7 +12,7 @@ composer require paulhollmann/vatsim-data
 
 ## Configuration
 
-This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsim-data.php` and update the settings as needed.
+This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsimdata.php` and update the settings as needed.
 
 
 ## Usage
@@ -41,7 +41,7 @@ To fetch the latest METAR data for a specific airport:
 ```php
 use VatsimData\Metar;
 
-$metar = Metar::get('eddf');; // Replace 'eddf' with any ICAO code
+$metar = Metar::get('eddf'); // Replace 'eddf' with any ICAO code
 ```
 ### And more to come
 
@@ -60,8 +60,8 @@ Contributions are welcome! If you'd like to contribute to this library, please f
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
+This project is licensed under the GNU GPLv3 License. See the [LICENSE](LICENSE) file for more information.
 
 ## Contact
 
-For any questions or issues, please contact me.
+For any questions or issues, please contact me paul.hollmann@vatger.de
