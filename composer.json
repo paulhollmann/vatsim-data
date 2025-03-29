@@ -14,10 +14,10 @@
   "require": {
     "php": "^8.3",
     "ext-curl": "*",
-    "illuminate/cache": "^v11",
-    "illuminate/support": "^v11",
-    "illuminate/config": "^v11",
-    "illuminate/collections": "^v11"
+    "illuminate/cache": "^v11|v12",
+    "illuminate/support": "^v11|v12",
+    "illuminate/config": "^v11|v12",
+    "illuminate/collections": "^v11|v12"
   },
   "require-dev": {
     "laravel/pint": "^1.18"
