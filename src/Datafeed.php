@@ -9,6 +9,7 @@ use VatsimData\DatafeedClasses\Atis;
 use VatsimData\DatafeedClasses\Controller;
 use VatsimData\DatafeedClasses\Pilot;
 use VatsimData\DatafeedClasses\RootObject;
+use VatsimData\Helpers\Polygon;
 
 class Datafeed
 {
@@ -56,6 +57,27 @@ class Datafeed
         $df = self::get();
 
         return $df ? $df->pilots : [];
+    }
+
+    /**
+     * @return Pilot[]
+     */
+    public static function PilotsLocal(): array
+    {
+        $pilots = self::Pilots();
+        $results = [];
+
+        $polygonWkt = Config::get('vatsimdata.local_airspace_polygon');
+        $polygon = new Polygon($polygonWkt);
+
+        foreach ($pilots as $pilot) {
+            if (isset($pilot->latitude, $pilot->longitude)
+                && $polygon->contains($pilot->latitude, $pilot->longitude)) {
+                $results[] = $pilot;
+            }
+        }
+
+        return $results;
     }
 
     public static function PilotsArrivingAerodrome(string $icao): array
