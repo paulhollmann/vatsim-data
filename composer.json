@@ -14,15 +14,15 @@
   "require": {
     "php": "^8.3",
     "ext-curl": "*",
-    "illuminate/cache": "^v11|^v12",
-    "illuminate/support": "^v11|^v12",
-    "illuminate/config": "^v11|^v12",
-    "illuminate/collections": "^v11|^v12"
+    "illuminate/cache": "^v11|^v12|^v13",
+    "illuminate/support": "^v11|^v12|^v13",
+    "illuminate/config": "^v11|^v12|^v13",
+    "illuminate/collections": "^v11|^v12|^v13"
   },
   "require-dev": {
     "laravel/pint": "^1.18",
     "psy/psysh": "^0.12.18",
-    "illuminate/container": "^v11|^v12",
+    "illuminate/container": "^v11|^v12|^v13",
     "phpoption/phpoption": "^1.9"
   },
   "autoload": {

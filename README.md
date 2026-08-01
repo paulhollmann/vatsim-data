@@ -5,24 +5,27 @@ making it ideal for aviation enthusiasts, developers of flight simulation tools,
 
 ## Installation
 
-To install the package, you can use Composer by running the following command in your Laravel project's root directory:
+To install the package, you can use Composer by running the following commands in your Laravel project's root directory.
+This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsimdata.php` and update the settings as needed.
 
 ```bash
 composer require paulhollmann/vatsim-data
+
+php artisan vendor:publish --tag=vatsimdata-config
 ```
 
-## Configuration
-
-This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsimdata.php` and update the settings as needed.
+## Config
 
 ## Usage
 
 ### Fetch VATSIM Data Feed
 
-To fetch the latest VATSIM data feed, use the `VatsimData` facade:
+To fetch the latest VATSIM data feed, use the `VatsimData` facade. All results are fully typed, so use your IDE to navigate the objects.
 
 ```php
 use VatsimData\Datafeed;
+// Get the whole datafeed
+$datafeed = Datafeed::get();
 
 // Retrieve all online pilots
 $pilots = Datafeed::getPilots();
@@ -30,8 +33,15 @@ $pilots = Datafeed::getPilots();
 // Retrieve all online controllers
 $controllers = Datafeed::getControllers();
 
-// ...
+// Retrieve all ATIS broadcasts
+$atises = Datafeed::Atis();
 
+```
+
+#### Local filters
+
+```php
+    $localPilots = Datafeed::PilotsLocal();
 ```
 
 ### Fetch METAR Data
