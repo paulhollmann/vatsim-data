@@ -4,11 +4,14 @@ namespace VatsimData;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Str;
+use VatsimData\DatafeedClasses\AerodromeSummary;
 use VatsimData\DatafeedClasses\Atis;
 use VatsimData\DatafeedClasses\Controller;
+use VatsimData\DatafeedClasses\ControllerStationMatch;
+use VatsimData\DatafeedClasses\ControllerWithTransceivers;
 use VatsimData\DatafeedClasses\Pilot;
 use VatsimData\DatafeedClasses\RootObject;
+use VatsimData\Helpers\Callsign;
 use VatsimData\Helpers\Polygon;
 
 class Datafeed
@@ -64,34 +67,41 @@ class Datafeed
      */
     public static function PilotsLocal(): array
     {
-        $pilots = self::Pilots();
-        $results = [];
-
         $polygonWkt = Config::get('vatsimdata.local_airspace_polygon');
-        $polygon = new Polygon($polygonWkt);
 
-        foreach ($pilots as $pilot) {
-            if (isset($pilot->latitude, $pilot->longitude)
-                && $polygon->contains($pilot->latitude, $pilot->longitude)) {
-                $results[] = $pilot;
-            }
-        }
+        return self::PilotsWithinPolygon(new Polygon($polygonWkt));
+    }
 
-        return $results;
+    /**
+     * @return Pilot[]
+     */
+    public static function PilotsWithinPolygon(Polygon $polygon): array
+    {
+        return array_values(array_filter(self::Pilots(), static function (Pilot $pilot) use ($polygon): bool {
+            return isset($pilot->latitude, $pilot->longitude)
+                && $polygon->contains($pilot->latitude, $pilot->longitude);
+        }));
     }
 
     public static function PilotsArrivingAerodrome(string $icao): array
     {
-        $pilots = self::Pilots();
+        return self::PilotsArrivingAt($icao);
+    }
 
-        $results = [];
-        foreach ($pilots as $p) {
-            if ($p->flight_plan != null && $p->flight_plan->arrival == $icao) {
-                $results[] = $p;
-            }
-        }
+    /**
+     * @return Pilot[]
+     */
+    public static function PilotsArrivingAt(string $icao): array
+    {
+        return self::PilotsForFlightPlanAirport($icao, 'arrival');
+    }
 
-        return $results;
+    /**
+     * @return Pilot[]
+     */
+    public static function PilotsDepartingFrom(string $icao): array
+    {
+        return self::PilotsForFlightPlanAirport($icao, 'departure');
     }
 
     /**
@@ -109,19 +119,66 @@ class Datafeed
      */
     public static function ControllersLocal(): array
     {
-        $resultList = [];
-        $atcs = self::Controllers();
         $local_atc_pattern = Config::get('vatsimdata.local_atc_pattern');
-        foreach ($atcs as $a) {
-            if (Str::contains($a->callsign, 'OBS')) {
-                continue;
-            }
-            if (preg_match($local_atc_pattern, $a->callsign) == 1) {
-                $resultList[] = $a;
+
+        return array_values(array_filter(self::ControllersActive(), static function (Controller $controller) use ($local_atc_pattern): bool {
+            return preg_match($local_atc_pattern, $controller->callsign) === 1;
+        }));
+    }
+
+    /**
+     * @return Controller[]
+     */
+    public static function ControllersActive(): array
+    {
+        return array_values(array_filter(self::Controllers(), static function (Controller $controller): bool {
+            return ! Callsign::parse($controller->callsign)->observer;
+        }));
+    }
+
+    /**
+     * @return Controller[]
+     */
+    public static function ControllersForAerodrome(string $icao, bool $includeObservers = false): array
+    {
+        $icao = self::NormaliseIcao($icao);
+
+        return array_values(array_filter(self::Controllers(), static function (Controller $controller) use ($icao, $includeObservers): bool {
+            $callsign = Callsign::parse($controller->callsign);
+
+            return $callsign->airport() === $icao && ($includeObservers || ! $callsign->observer);
+        }));
+    }
+
+    public static function ControllerForStation(string $ident, string|float $frequency, bool $includeObservers = false): ?ControllerStationMatch
+    {
+        $stationCallsign = Callsign::parse($ident);
+        $stationFrequency = self::NormaliseFrequency($frequency);
+
+        foreach (self::Controllers() as $controller) {
+            $controllerCallsign = Callsign::parse($controller->callsign);
+
+            if (
+                $controllerCallsign->matchesStation($stationCallsign)
+                && ($includeObservers || ! $controllerCallsign->observer)
+                && self::NormaliseFrequency($controller->frequency) === $stationFrequency
+            ) {
+                return new ControllerStationMatch($controller, $stationCallsign->value, $stationFrequency);
             }
         }
 
-        return $resultList;
+        return null;
+    }
+
+    /**
+     * @return ControllerWithTransceivers[]
+     */
+    public static function ControllersWithTransceiversForAerodrome(string $icao, bool $includeObservers = false): array
+    {
+        return array_map(
+            static fn (Controller $controller): ControllerWithTransceivers => new ControllerWithTransceivers($controller),
+            self::ControllersForAerodrome($icao, $includeObservers),
+        );
     }
 
     /**
@@ -139,14 +196,75 @@ class Datafeed
      */
     public static function AtisAerodrome(string $icao): array
     {
+        $icao = self::NormaliseIcao($icao);
         $all_atises = self::Atis();
         $matches = [];
         foreach ($all_atises as $atis) {
-            if (Str::substr($atis?->callsign, 0, 4) == $icao) {
+            if (Callsign::parse($atis->callsign)->airport() === $icao) {
                 $matches[] = $atis;
             }
         }
 
         return $matches;
+    }
+
+    public static function AerodromeSummary(string $icao): AerodromeSummary
+    {
+        $icao = self::NormaliseIcao($icao);
+        $controllers = self::ControllersForAerodrome($icao);
+        $roles = array_fill_keys(['DEL', 'GND', 'TWR', 'APP', 'DEP', 'CTR', 'FSS'], false);
+
+        foreach ($controllers as $controller) {
+            $role = Callsign::parse($controller->callsign)->role;
+            if ($role !== null) {
+                $roles[$role] = true;
+            }
+        }
+
+        return new AerodromeSummary(
+            $icao,
+            count(self::PilotsDepartingFrom($icao)),
+            count(self::PilotsArrivingAt($icao)),
+            $controllers,
+            self::AtisAerodrome($icao),
+            $roles,
+        );
+    }
+
+    /**
+     * @param  iterable<string>  $icaos
+     * @return array<string, AerodromeSummary>
+     */
+    public static function AerodromeSummaries(iterable $icaos): array
+    {
+        $summaries = [];
+        foreach ($icaos as $icao) {
+            $icao = self::NormaliseIcao($icao);
+            $summaries[$icao] = self::AerodromeSummary($icao);
+        }
+
+        return $summaries;
+    }
+
+    /**
+     * @return Pilot[]
+     */
+    private static function PilotsForFlightPlanAirport(string $icao, string $field): array
+    {
+        $icao = self::NormaliseIcao($icao);
+
+        return array_values(array_filter(self::Pilots(), static function (Pilot $pilot) use ($icao, $field): bool {
+            return $pilot->flight_plan !== null && strtoupper($pilot->flight_plan->{$field}) === $icao;
+        }));
+    }
+
+    private static function NormaliseIcao(string $icao): string
+    {
+        return strtoupper(trim($icao));
+    }
+
+    private static function NormaliseFrequency(string|float $frequency): string
+    {
+        return number_format((float) $frequency, 3, '.', '');
     }
 }
