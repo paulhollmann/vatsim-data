@@ -38,14 +38,24 @@ final class Stand
     {
         $matches = $this->matches();
 
-        return $matches === null ? null : $matches[1];
+        if ($matches === null) {
+            return null;
+        }
+
+        return $this->standRootComesFirst() ? $matches[1] : $matches[2];
     }
 
     public function getExtension(): ?string
     {
         $matches = $this->matches();
 
-        return $matches[2] ?? null;
+        if ($matches === null) {
+            return null;
+        }
+
+        $extension = $this->standRootComesFirst() ? ($matches[2] ?? null) : $matches[1];
+
+        return $extension !== '' ? $extension : null;
     }
 
     public function clear(): void
@@ -60,5 +70,10 @@ final class Stand
         $expression = str_replace(['<standroot>', '<extensions>'], ['([0-9]+)', '('.$extensions.')?'], $this->pattern);
 
         return preg_match('/^'.$expression.'$/', $this->id, $matches) === 1 ? $matches : null;
+    }
+
+    private function standRootComesFirst(): bool
+    {
+        return strpos($this->pattern, '<standroot>') < strpos($this->pattern, '<extensions>');
     }
 }

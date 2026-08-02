@@ -32,4 +32,12 @@ final class Aircraft
     {
         $this->standIndex = $standIndex;
     }
+
+    public function flightPlanAirport(string $field): ?string
+    {
+        $flightPlan = $this->flight_plan;
+        $airport = is_array($flightPlan) ? ($flightPlan[$field] ?? null) : ($flightPlan?->{$field} ?? null);
+
+        return is_string($airport) && $airport !== '' ? strtoupper($airport) : null;
+    }
 }

@@ -4,8 +4,10 @@ namespace VatsimData;
 
 use Illuminate\Support\Facades\Cache;
 use VatsimData\DatafeedClasses\Pilot;
+use VatsimData\DatafeedClasses\PilotPosition;
 use VatsimData\Helpers\Coordinates;
 use VatsimData\StandData\Aircraft;
+use VatsimData\StandData\FlightStatus;
 use VatsimData\StandData\Stand;
 
 /**
@@ -41,12 +43,16 @@ final class StandStatus
 
     private string $standExtensionPattern = '<standroot><extensions>';
 
+    private ?string $airportIcao;
+
     public function __construct(
         private readonly float $airportLatitude,
         private readonly float $airportLongitude,
         private readonly int $standCoordinateFormat = self::COORD_FORMAT_DECIMAL,
+        ?string $airportIcao = null,
     ) {
         Coordinates::assertValid($airportLatitude, $airportLongitude);
+        $this->airportIcao = $airportIcao !== null ? strtoupper(trim($airportIcao)) : null;
     }
 
     /** @param array<int, array{0: string|int, 1: string|float|int, 2: string|float|int}> $standData */
@@ -184,6 +190,116 @@ final class StandStatus
     public function allAircraft(): array
     {
         return $this->aircraft;
+    }
+
+    /**
+     * Calculate an aircraft's current phase from the latest VATSIM snapshot.
+     *
+     * Set the airport ICAO to distinguish departure and arrival phases.
+     */
+    public function flightStatus(Aircraft $aircraft): FlightStatus
+    {
+        $isDeparture = $this->airportIcao !== null && $aircraft->flightPlanAirport('departure') === $this->airportIcao;
+        $isArrival = $this->airportIcao !== null && $aircraft->flightPlanAirport('arrival') === $this->airportIcao;
+
+        if ($aircraft->onStand()) {
+            return $isArrival ? FlightStatus::ARRIVED_AT_GATE : FlightStatus::AT_GATE;
+        }
+
+        if ($aircraft->altitude <= 100) {
+            if ($isDeparture) {
+                return $aircraft->groundspeed >= 40 ? FlightStatus::TAKING_OFF : FlightStatus::TAXI_FOR_DEPARTURE;
+            }
+
+            return $isArrival ? FlightStatus::TAXI_TO_GATE : FlightStatus::UNKNOWN;
+        }
+
+        if ($isArrival) {
+            return FlightStatus::ARRIVING;
+        }
+
+        if ($isDeparture) {
+            return $aircraft->altitude <= 2000 && $aircraft->groundspeed >= 40
+                ? FlightStatus::TAKING_OFF
+                : FlightStatus::DEPARTING;
+        }
+
+        return FlightStatus::UNKNOWN;
+    }
+
+    /** @param array<string, mixed>|Pilot $pilot */
+    public function calculateFlightStatus(array|Pilot $pilot): FlightStatus
+    {
+        return $this->flightStatus(new Aircraft($pilot));
+    }
+
+    /**
+     * @param  iterable<array<string, mixed>|Pilot>|null  $pilots
+     * @return array<string, FlightStatus> keyed by callsign
+     */
+    public function flightStatuses(?iterable $pilots = null): array
+    {
+        $tracks = Datafeed::PilotTracks();
+        $matchedAircraft = [];
+        foreach ($this->aircraft as $aircraft) {
+            $matchedAircraft[(string) $aircraft->callsign] = $aircraft;
+        }
+
+        $statuses = [];
+        foreach ($pilots ?? Datafeed::Pilots() as $pilot) {
+            $callsign = is_array($pilot) ? (string) ($pilot['callsign'] ?? '') : $pilot->callsign;
+            $cid = is_array($pilot) ? (int) ($pilot['cid'] ?? 0) : $pilot->cid;
+            $aircraft = $matchedAircraft[$callsign] ?? new Aircraft($pilot);
+            $actualPoints = $tracks[$cid]?->actual ?? [];
+            $previous = count($actualPoints) >= 2 ? $actualPoints[count($actualPoints) - 2] : null;
+            $status = $this->trackedFlightStatus($aircraft, $previous);
+            $statuses[$callsign] = $status;
+        }
+
+        return $statuses;
+    }
+
+    public function setAirportIcao(?string $icao): self
+    {
+        $this->airportIcao = $icao !== null ? strtoupper(trim($icao)) : null;
+
+        return $this;
+    }
+
+    public function getAirportIcao(): ?string
+    {
+        return $this->airportIcao;
+    }
+
+    private function trackedFlightStatus(Aircraft $aircraft, ?PilotPosition $previous): FlightStatus
+    {
+        $status = $this->flightStatus($aircraft);
+        if ($previous === null) {
+            return $status;
+        }
+
+        $previousObservedAt = new \DateTimeImmutable($previous->recorded_at);
+        $verticalSpeed = ((int) $aircraft->altitude - $previous->altitude) / max(1, time() - $previousObservedAt->getTimestamp());
+        $distanceTravelled = Coordinates::distance(
+            $previous->latitude,
+            $previous->longitude,
+            (float) $aircraft->latitude,
+            (float) $aircraft->longitude,
+        );
+
+        if ($status === FlightStatus::UNKNOWN) {
+            if ($aircraft->altitude > 100 && $verticalSpeed > 2.5) {
+                return $previous->altitude <= 100 ? FlightStatus::TAKING_OFF : FlightStatus::DEPARTING;
+            }
+            if ($aircraft->altitude > 100 && $verticalSpeed < -2.5) {
+                return FlightStatus::ARRIVING;
+            }
+            if ($aircraft->altitude <= 100 && $previous->groundspeed <= 5 && $distanceTravelled > 0.005) {
+                return FlightStatus::TAXI_FOR_DEPARTURE;
+            }
+        }
+
+        return $status;
     }
 
     public function setMaxStandDistance(float $distance): self

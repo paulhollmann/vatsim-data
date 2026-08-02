@@ -10,6 +10,8 @@ use VatsimData\DatafeedClasses\Controller;
 use VatsimData\DatafeedClasses\ControllerStationMatch;
 use VatsimData\DatafeedClasses\ControllerWithTransceivers;
 use VatsimData\DatafeedClasses\Pilot;
+use VatsimData\DatafeedClasses\PilotPosition;
+use VatsimData\DatafeedClasses\PilotTrack;
 use VatsimData\DatafeedClasses\RootObject;
 use VatsimData\Helpers\Callsign;
 use VatsimData\Helpers\Polygon;
@@ -38,18 +40,111 @@ class Datafeed
         $url = $use_df_cache ? $url_cached : $url_uncached;
 
         $cache_key = Config::get('vatsimdata.cache_key');
+        $ttl = Config::get('vatsimdata.datafeed_cache_ttl', 60);
 
-        return Cache::remember($cache_key.'datafeed.get', 20, function () use ($use_df_cache, $url) {
-            $data = self::do_curl($url);
-            if (! $data) {
-                return null;
-            }
-            if ($use_df_cache) {
-                return RootObject::fromJson(json_decode($data)?->data);
-            } else {
-                return RootObject::fromJson(json_decode($data));
-            }
-        });
+        return Cache::remember($cache_key.'datafeed.get', $ttl, fn (): ?RootObject => self::fetch($use_df_cache, $url));
+    }
+
+    /** Fetch the feed immediately, refresh its cache entry, and record pilot positions. */
+    public static function refresh(): ?RootObject
+    {
+        $use_df_cache = Config::get('vatsimdata.use_datafeed_cache');
+        $url = $use_df_cache
+            ? Config::get('vatsimdata.datafeed_cached_url')
+            : Config::get('vatsimdata.datafeed_uncached_url');
+        $feed = self::fetch($use_df_cache, $url);
+
+        if ($feed === null) {
+            return null;
+        }
+
+        $cacheKey = Config::get('vatsimdata.cache_key');
+        Cache::put($cacheKey.'datafeed.get', $feed, Config::get('vatsimdata.datafeed_cache_ttl', 60));
+        self::recordPilotHistory($feed);
+
+        return $feed;
+    }
+
+    /**
+     * @return array<int, PilotPosition[]> keyed by VATSIM CID
+     */
+    public static function PilotHistory(): array
+    {
+        return Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-history', []);
+    }
+
+    /**
+     * Return actual pilot history followed by predicted positions.
+     * Predictions are extrapolated from the most recent two tracked points.
+     *
+     * @return array<int, PilotTrack> keyed by VATSIM CID
+     */
+    public static function PilotTracks(): array
+    {
+        $history = self::PilotHistory();
+        $tracks = [];
+
+        foreach ($history as $cid => $points) {
+            $actualPoints = array_slice(array_values(array_filter($points, static fn (PilotPosition $point): bool => ! $point->predicted)), -5);
+            $tracks[$cid] = new PilotTrack($actualPoints, self::predictPilotPositions($actualPoints));
+        }
+
+        return $tracks;
+    }
+
+    /**
+     * @param  PilotPosition[]  $points
+     * @return PilotPosition[]
+     */
+    private static function predictPilotPositions(array $points): array
+    {
+        if (count($points) < 2) {
+            return [];
+        }
+
+        $last = $points[count($points) - 1];
+        $previous = $points[count($points) - 2];
+        $lastTime = new \DateTimeImmutable($last->recorded_at);
+        $previousTime = new \DateTimeImmutable($previous->recorded_at);
+        $interval = max(1, $lastTime->getTimestamp() - $previousTime->getTimestamp());
+        $latitudeDelta = ($last->latitude - $previous->latitude) / $interval;
+        $longitudeDelta = ($last->longitude - $previous->longitude) / $interval;
+        $altitudeDelta = (int) round(($last->altitude - $previous->altitude) / $interval);
+        $predictions = [];
+
+        foreach ([10, 20, 30] as $seconds) {
+            $predictions[] = $last->predict($latitudeDelta, $longitudeDelta, $altitudeDelta, $seconds);
+        }
+
+        return $predictions;
+    }
+
+    private static function fetch(bool $use_df_cache, string $url): ?RootObject
+    {
+        $data = self::do_curl($url);
+        if (! $data) {
+            return null;
+        }
+
+        $decoded = json_decode($data);
+        $payload = $use_df_cache ? ($decoded?->data ?? null) : $decoded;
+
+        return $payload === null ? null : RootObject::fromJson($payload);
+    }
+
+    private static function recordPilotHistory(RootObject $feed): void
+    {
+        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-history';
+        $history = Cache::get($cacheKey, []);
+        $maxPoints = max(1, (int) Config::get('vatsimdata.datafeed_history_count', 5));
+
+        foreach ($feed->pilots as $pilot) {
+            $points = $history[$pilot->cid] ?? [];
+            $points[] = PilotPosition::fromPilot($pilot);
+            $history[$pilot->cid] = array_slice($points, -$maxPoints);
+        }
+
+        Cache::put($cacheKey, $history, Config::get('vatsimdata.datafeed_history_ttl', 86400));
     }
 
     /**
@@ -154,20 +249,23 @@ class Datafeed
     {
         $stationCallsign = Callsign::parse($ident);
         $stationFrequency = self::NormaliseFrequency($frequency);
+        $cacheKey = Config::get('vatsimdata.cache_key').'controller.station.'.$stationCallsign->value.'.'.$stationFrequency.'.'.(int) $includeObservers;
 
-        foreach (self::Controllers() as $controller) {
-            $controllerCallsign = Callsign::parse($controller->callsign);
+        return Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($stationCallsign, $stationFrequency, $includeObservers): ?ControllerStationMatch {
+            foreach (self::Controllers() as $controller) {
+                $controllerCallsign = Callsign::parse($controller->callsign);
 
-            if (
-                $controllerCallsign->matchesStation($stationCallsign)
-                && ($includeObservers || ! $controllerCallsign->observer)
-                && self::NormaliseFrequency($controller->frequency) === $stationFrequency
-            ) {
-                return new ControllerStationMatch($controller, $stationCallsign->value, $stationFrequency);
+                if (
+                    $controllerCallsign->matchesStation($stationCallsign)
+                    && ($includeObservers || ! $controllerCallsign->observer)
+                    && self::NormaliseFrequency($controller->frequency) === $stationFrequency
+                ) {
+                    return new ControllerStationMatch($controller, $stationCallsign->value, $stationFrequency);
+                }
             }
-        }
 
-        return null;
+            return null;
+        });
     }
 
     /**
@@ -175,10 +273,15 @@ class Datafeed
      */
     public static function ControllersWithTransceiversForAerodrome(string $icao, bool $includeObservers = false): array
     {
-        return array_map(
-            static fn (Controller $controller): ControllerWithTransceivers => new ControllerWithTransceivers($controller),
-            self::ControllersForAerodrome($icao, $includeObservers),
-        );
+        $icao = self::NormaliseIcao($icao);
+        $cacheKey = Config::get('vatsimdata.cache_key').'controllers.transceivers.'.$icao.'.'.(int) $includeObservers;
+
+        return Cache::remember($cacheKey, Config::get('vatsimdata.transceiver_cache_ttl', 120), static function () use ($icao, $includeObservers): array {
+            return array_map(
+                static fn (Controller $controller): ControllerWithTransceivers => new ControllerWithTransceivers($controller),
+                self::ControllersForAerodrome($icao, $includeObservers),
+            );
+        });
     }
 
     /**
@@ -211,24 +314,28 @@ class Datafeed
     public static function AerodromeSummary(string $icao): AerodromeSummary
     {
         $icao = self::NormaliseIcao($icao);
-        $controllers = self::ControllersForAerodrome($icao);
-        $roles = array_fill_keys(['DEL', 'GND', 'TWR', 'APP', 'DEP', 'CTR', 'FSS'], false);
+        $cacheKey = Config::get('vatsimdata.cache_key').'aerodrome.summary.'.$icao;
 
-        foreach ($controllers as $controller) {
-            $role = Callsign::parse($controller->callsign)->role;
-            if ($role !== null) {
-                $roles[$role] = true;
+        return Cache::remember($cacheKey, Config::get('vatsimdata.aerodrome_summary_cache_ttl', 60), static function () use ($icao): AerodromeSummary {
+            $controllers = self::ControllersForAerodrome($icao);
+            $roles = array_fill_keys(['DEL', 'GND', 'TWR', 'APP', 'DEP', 'CTR', 'FSS'], false);
+
+            foreach ($controllers as $controller) {
+                $role = Callsign::parse($controller->callsign)->role;
+                if ($role !== null) {
+                    $roles[$role] = true;
+                }
             }
-        }
 
-        return new AerodromeSummary(
-            $icao,
-            count(self::PilotsDepartingFrom($icao)),
-            count(self::PilotsArrivingAt($icao)),
-            $controllers,
-            self::AtisAerodrome($icao),
-            $roles,
-        );
+            return new AerodromeSummary(
+                $icao,
+                count(self::PilotsDepartingFrom($icao)),
+                count(self::PilotsArrivingAt($icao)),
+                $controllers,
+                self::AtisAerodrome($icao),
+                $roles,
+            );
+        });
     }
 
     /**

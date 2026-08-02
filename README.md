@@ -1,82 +1,174 @@
-# VATSIM Data Laravel Library
+# VATSIM Data
 
-This Laravel library allows to easily query VATSIM's data feed, METAR information, and status data. It provides a simple and efficient way to access real-time data for virtual air traffic simulation,
-making it ideal for aviation enthusiasts, developers of flight simulation tools, or anyone interested in utilizing VATSIM's data.
+`vatsim-data` is a Laravel package for VATSIM's live network data. It provides typed pilots, controllers, ATIS, transceivers, METARs, aerodrome summaries, and airport stand occupancy in one package.
+
+All live data access is cached internally. Application code queries the API and receives typed objects; it does not need to download, parse, or cache VATSIM payloads itself.
+
+## Requirements
+
+- PHP 8.3 or later
+- Laravel 11, 12, or 13
 
 ## Installation
 
-To install the package, you can use Composer by running the following commands in your Laravel project's root directory.
-This package requires configuration to access VATSIM's data. Open the configuration file located at `config/vatsimdata.php` and update the settings as needed.
-
 ```bash
 composer require paulhollmann/vatsim-data
-
 php artisan vendor:publish --tag=vatsimdata-config
 ```
 
-## Config
+The published `config/vatsimdata.php` controls the VATSIM endpoint, cache-key prefix, and optional local-airspace helpers. The global methods described below do not depend on any VATSIM Germany-specific configuration.
 
-## Usage
+### Cache lifetime
 
-### Fetch VATSIM Data Feed
+All cache entries are internal and use Laravel's configured cache store. The defaults balance live-data freshness against repeated slow requests:
 
-To fetch the latest VATSIM data feed, use the `VatsimData` facade. All results are fully typed, so use your IDE to navigate the objects.
+| Environment variable | Default | Cached data |
+| --- | ---: | --- |
+| `VATSIM_DATAFEED_CACHE_TTL` | 60 seconds | Main VATSIM datafeed and derived station lookups |
+| `VATSIM_DATAFEED_HISTORY_COUNT` | 5 | Movement points retained per pilot |
+| `VATSIM_DATAFEED_HISTORY_TTL` | 86400 seconds | Lifetime of pilot movement history |
+| `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per ICAO code |
+| `VATSIM_TRANSCEIVER_CACHE_TTL` | 120 seconds | Transceiver data and controller transceiver lookups |
+| `VATSIM_AERODROME_SUMMARY_CACHE_TTL` | 60 seconds | Aerodrome summaries |
+
+OpenStreetMap stand data is cached for three months. Change a TTL only when your application needs a different freshness/performance trade-off; no cache calls are required in application code.
+
+## Live datafeed
 
 ```php
 use VatsimData\Datafeed;
-// Get the whole datafeed
-$datafeed = Datafeed::get();
 
-// Retrieve all online pilots
-$pilots = Datafeed::getPilots();
-
-// Retrieve all online controllers
-$controllers = Datafeed::getControllers();
-
-// Retrieve all ATIS broadcasts
-$atises = Datafeed::Atis();
-
+$feed = Datafeed::get();          // ?RootObject
+$pilots = Datafeed::Pilots();     // Pilot[]
+$controllers = Datafeed::Controllers(); // Controller[]
+$atis = Datafeed::Atis();         // Atis[]
+$history = Datafeed::PilotHistory(); // array<int, PilotPosition[]>
+$tracks = Datafeed::PilotTracks(); // array<int, PilotTrack>
 ```
 
-#### Local filters
+### Refresh worker and movement history
+
+The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and three predicted points at exactly 10, 20, and 30 seconds after the latest point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
+
+Run it from Laravel's scheduler, for example in `routes/console.php`:
 
 ```php
-    $localPilots = Datafeed::PilotsLocal();
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('vatsimdata:refresh')->everyMinute()->withoutOverlapping();
 ```
 
-### Fetch METAR Data
+Then run `php artisan schedule:work` (or configure your normal scheduler worker). The history is stored in the configured Laravel cache store, so use a shared store when multiple application instances collect or read it.
 
-To fetch the latest METAR data for a specific airport:
+`RootObject`, `Pilot`, `Controller`, `Atis`, `FlightPlan`, and related classes are typed DTOs in the `VatsimData\DatafeedClasses` namespace. For example:
+
+```php
+foreach (Datafeed::Pilots() as $pilot) {
+    echo $pilot->callsign;
+    echo $pilot->latitude;
+    echo $pilot->flight_plan?->departure;
+}
+```
+
+### Pilot queries
+
+```php
+Datafeed::PilotsArrivingAt('EDDF');
+Datafeed::PilotsDepartingFrom('EDDF');
+
+// Existing compatibility method; it delegates to PilotsArrivingAt().
+Datafeed::PilotsArrivingAerodrome('EDDF');
+```
+
+ICAO input is normalized, and pilots without a flight plan are ignored by arrival/departure queries.
+
+For geographic filtering, pass the included polygon helper:
+
+```php
+use VatsimData\Helpers\Polygon;
+
+$polygon = new Polygon('POLYGON((...))');
+$pilots = Datafeed::PilotsWithinPolygon($polygon);
+```
+
+`PilotsLocal()` remains available as a convenience wrapper around the polygon configured in `vatsimdata.local_airspace_polygon`.
+
+### Controllers, callsigns, and stations
+
+```php
+use VatsimData\Datafeed;
+use VatsimData\Helpers\Callsign;
+
+$active = Datafeed::ControllersActive();
+$eddfControllers = Datafeed::ControllersForAerodrome('EDDF');
+$withTransceivers = Datafeed::ControllersWithTransceiversForAerodrome('EDDF');
+
+$callsign = Callsign::parse('EDDF_N_TWR');
+$callsign->airport(); // 'EDDF'
+$callsign->role;      // 'TWR'
+$callsign->observer;  // false
+```
+
+`ControllersActive()` is global and excludes observers. `ControllersLocal()` is retained for applications using the configured regional callsign pattern.
+
+To resolve a controller from station data, supply the station ident and frequency:
+
+```php
+$match = Datafeed::ControllerForStation('EDDF_TWR', 118.7);
+
+$controller = $match?->controller;       // ?Controller
+$ident = $match?->stationIdent;
+$frequency = $match?->stationFrequency;
+```
+
+The matcher normalizes frequencies and accepts sectorised controller callsigns, so `EDDF_N_TWR` can match an `EDDF_TWR` station at the same frequency.
+
+### Aerodrome summaries
+
+`AerodromeSummary` combines a single airport's live controllers, ATIS, active controller roles, arrivals, and departures.
+
+```php
+$summary = Datafeed::AerodromeSummary('EDDF');
+
+$summary->departures;       // int
+$summary->arrivals;         // int
+$summary->controllers;      // Controller[]
+$summary->atis;             // Atis[]
+$summary->roles;            // array<string, bool>
+$summary->hasRole('TWR');   // bool
+```
+
+For airport lists:
+
+```php
+$summaries = Datafeed::AerodromeSummaries(['EDDF', 'EDDM', 'LOWW']);
+$eddf = $summaries['EDDF'];
+```
+
+### ATIS, METAR, and transceivers
 
 ```php
 use VatsimData\Metar;
-
-$metars = Metar::get('eddf'); // Replace 'eddf' with any ICAO code
-```
-
-### Fetch Transceiver Data
-
-To fetch the latest transceiver data for a specific controller:
-
-```php
 use VatsimData\TransceiverData;
 
-$owner = TransceiverData::Owner('eddf_n_app');
-$transceivers = $owner->transceivers;
+$atis = Datafeed::AtisAerodrome('EDDF');
+$metar = Metar::get('EDDF');
+
+$owner = TransceiverData::Owner('EDDF_N_TWR');
+$transceivers = $owner?->transceivers ?? [];
 ```
-
-## Caching
-
-The library supports caching of responses to reduce the number of requests to the VATSIM servers.
 
 ## Stand status
 
-`VatsimData\StandStatus` assigns nearby, stationary VATSIM pilots to airport parking stands. It replaces the separate stand-status package while retaining its familiar stand input format.
+`VatsimData\StandStatus` replaces the separate `vatsim-stand-status` package. It associates eligible VATSIM pilots with the nearest airport parking stand.
+
+### Quick start
 
 ```php
 use VatsimData\StandStatus;
 
 $stands = new StandStatus(51.148056, -0.190278);
+
 $stands->loadStandDataFromArray([
     ['43N', 51.15712, -0.17373],
     ['43W', 51.15712, -0.17373],
@@ -87,23 +179,115 @@ foreach ($stands->occupiedStands() as $stand) {
 }
 ```
 
-The array input is `[stand identifier, latitude, longitude]`; `loadStandDataFromCSV()` accepts the same three columns. `parseData()` uses the cached `Datafeed::Pilots()` result automatically, or you may pass an iterable of `Pilot` objects or legacy pilot arrays directly.
+`parseData()` reads the cached `Datafeed::Pilots()` result by default. For tests or application-owned sources, pass an iterable of typed `Pilot` objects or the legacy pilot-array shape:
 
-For CAA/Aerospace coordinates, construct it with `StandStatus::COORD_FORMAT_CAA`. `fetchAndLoadStandDataFromOSM('EGLL')` loads OpenStreetMap parking positions and caches them internally for three months. OpenStreetMap-derived data must be attributed as required by the ODbL.
+```php
+$stands->parseData([
+    [
+        'callsign' => 'TEST1',
+        'latitude' => 51.15712,
+        'longitude' => -0.17373,
+        'altitude' => 0,
+        'groundspeed' => 0,
+    ],
+]);
+```
 
-## Contributing
+### Stand input
 
-Contributions are welcome! If you'd like to contribute to this library, please follow these steps:
+The legacy input contract is retained. Every stand row has exactly three values: `[identifier, latitude, longitude]`.
 
-1. Fork the repository.
-2. Create a new branch for your feature or bug fix.
-3. Implement your changes and add tests as necessary.
-4. Submit a pull request detailing your changes.
+```php
+$stands->loadStandDataFromArray([
+    ['1', 51.154819, -0.164813],
+    ['10', 51.155090, -0.164660],
+]);
+
+$stands->loadStandDataFromCSV(storage_path('stands.csv'));
+```
+
+CSV files use the same three columns; an optional header row is accepted.
+
+For CAA/Aerospace coordinate input, use the legacy-compatible format constant:
+
+```php
+$stands = new StandStatus(
+    51.148056,
+    -0.190278,
+    StandStatus::COORD_FORMAT_CAA,
+);
+```
+
+### OpenStreetMap stand data
+
+```php
+$stands = new StandStatus(51.4775, -0.461389); // EGLL
+$stands->fetchAndLoadStandDataFromOSM('EGLL')->parseData();
+```
+
+This downloads OSM `aeroway=parking_position` data around the airport and caches it internally for three months. OSM data may be incomplete; consumers displaying or redistributing it must provide OpenStreetMap attribution as required by the ODbL.
+
+### Matching settings
+
+All setters are fluent. Run `parseData()` again after changing one.
+
+| Setter | Default | Meaning |
+| --- | ---: | --- |
+| `setMaxStandDistance(float $km)` | `0.07` km | Maximum aircraft-to-stand distance. |
+| `setMaxDistanceFromAirport(float $km)` | `2` km | Aircraft outside this airport-centre radius are ignored. |
+| `setMaxAircraftAltitude(int $feet)` | `3000` ft | Aircraft above this altitude are ignored. |
+| `setMaxAircraftGroundspeed(int $knots)` | `10` kt | Aircraft faster than this are ignored. |
+| `setHideStandSidesWhenOccupied(bool $hide)` | `true` | Hides related stands such as `42L` and `42R`. |
+| `setStandExtensions(array $extensions)` | `['L', 'C', 'R', 'A', 'B', 'N', 'E', 'S', 'W']` | Defines side-stand suffixes. |
+| `setStandExtensionPattern(string $pattern)` | `'<standroot><extensions>'` | Defines how stand groups are detected. |
+
+### Results
+
+```php
+$all = $stands->allStands();
+$visible = $stands->stands();
+$occupied = $stands->occupiedStands();
+$unoccupied = $stands->unoccupiedStands();
+$aircraft = $stands->allAircraft();
+
+// Pass true for arrays keyed by stand identifier.
+$standsByName = $stands->allStands(true);
+```
+
+Each returned `Stand` exposes `id`, `latitude`, `longitude`, `occupier`, `isOccupied()`, `getName()`, `getRoot()`, and `getExtension()`. `Aircraft` exposes the VATSIM pilot fields through properties such as `callsign`, `latitude`, `longitude`, `altitude`, and `groundspeed`, plus `onStand()` and `getStandIndex()`.
+
+### Flight phases
+
+Set the airport ICAO as the optional fourth constructor argument (or with `setAirportIcao()`) to calculate a typed `FlightStatus` for pilots around an airport:
+
+```php
+use VatsimData\StandData\FlightStatus;
+
+$stands = new StandStatus(50.033333, 8.570556, StandStatus::COORD_FORMAT_DECIMAL, 'EDDF');
+
+$status = $stands->calculateFlightStatus($pilot);
+
+if ($status === FlightStatus::TAXI_FOR_DEPARTURE) {
+    // …
+}
+```
+
+The possible values are `AT_GATE`, `TAXI_FOR_DEPARTURE`, `TAKING_OFF`, `DEPARTING`, `ARRIVING`, `TAXI_TO_GATE`, `ARRIVED_AT_GATE`, and `UNKNOWN`.
+
+`flightStatuses()` calculates statuses for every current VATSIM pilot; pass an iterable of `Pilot` objects or legacy arrays to classify a supplied data set. The classifier is snapshot-based: it uses stand occupancy, altitude, groundspeed, and flight-plan departure/arrival ICAOs. It therefore returns `UNKNOWN` where a current snapshot cannot establish a reliable phase, rather than inferring a route-specific status.
+
+`flightStatuses()` uses the first-class pilot history exposed by `Datafeed::PilotTracks()`. This improves transitions such as climb, descent, and gate departure movement when a flight plan is missing, without adding a second tracking store or per-aircraft cache writes.
+
+Record history by scheduling the built-in refresh command at the interval your application needs (one minute is a sensible default):
+
+```php
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('vatsimdata:refresh')->everyMinute();
+```
+
+The command refreshes the datafeed cache and stores a compact position history per VATSIM CID. History length and retention are controlled by `VATSIM_DATAFEED_HISTORY_COUNT` (default `5`) and `VATSIM_DATAFEED_HISTORY_TTL` (default `86400` seconds).
 
 ## License
 
-This project is licensed under the GNU GPLv3 License. See the [LICENSE](LICENSE) file for more information.
-
-## Contact
-
-For any questions or issues, please contact me paul.hollmann@vatger.de
+GPL-3.0-only. See [LICENSE](LICENSE).

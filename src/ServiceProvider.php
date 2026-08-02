@@ -12,6 +12,10 @@ class ServiceProvider extends \Illuminate\Support\ServiceProvider
         $this->publishes([
             __DIR__.'/../config/vatsimdata.php' => config_path('vatsimdata.php'),
         ]);
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([Commands\RefreshDatafeedCommand::class]);
+        }
     }
 
     public function register(): void
