@@ -85,7 +85,13 @@ class Datafeed
         $tracks = [];
 
         foreach ($history as $cid => $points) {
-            $actualPoints = array_slice(array_values(array_filter($points, static fn (PilotPosition $point): bool => ! $point->predicted)), -5);
+            $actualPoints = array_slice(
+                array_values(array_filter(
+                    $points,
+                    static fn (mixed $point): bool => $point instanceof PilotPosition && ! $point->predicted,
+                )),
+                -5,
+            );
             $tracks[$cid] = new PilotTrack($actualPoints, self::predictPilotPositions($actualPoints));
         }
 
@@ -139,7 +145,10 @@ class Datafeed
         $maxPoints = max(1, (int) Config::get('vatsimdata.datafeed_history_count', 5));
 
         foreach ($feed->pilots as $pilot) {
-            $points = $history[$pilot->cid] ?? [];
+            $points = array_values(array_filter(
+                $history[$pilot->cid] ?? [],
+                static fn (mixed $point): bool => $point instanceof PilotPosition,
+            ));
             $points[] = PilotPosition::fromPilot($pilot);
             $history[$pilot->cid] = array_slice($points, -$maxPoints);
         }
