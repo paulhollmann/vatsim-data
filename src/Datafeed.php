@@ -42,7 +42,28 @@ class Datafeed
         $cache_key = Config::get('vatsimdata.cache_key');
         $ttl = Config::get('vatsimdata.datafeed_cache_ttl', 60);
 
-        return Cache::remember($cache_key.'datafeed.get', $ttl, fn (): ?RootObject => self::fetch($use_df_cache, $url));
+        $cacheKey = $cache_key.'datafeed.get';
+        $payload = Cache::get($cacheKey);
+
+        if (! is_string($payload)) {
+            if ($payload !== null) {
+                Cache::forget($cacheKey);
+            }
+
+            $payload = self::fetch($url);
+
+            if ($payload === null) {
+                return null;
+            }
+
+            if (self::hydrate($payload, $use_df_cache) === null) {
+                return null;
+            }
+
+            Cache::put($cacheKey, $payload, $ttl);
+        }
+
+        return self::hydrate($payload, $use_df_cache);
     }
 
     /** Fetch the feed immediately, refresh its cache entry, and record pilot positions. */
@@ -52,14 +73,20 @@ class Datafeed
         $url = $use_df_cache
             ? Config::get('vatsimdata.datafeed_cached_url')
             : Config::get('vatsimdata.datafeed_uncached_url');
-        $feed = self::fetch($use_df_cache, $url);
+        $payload = self::fetch($url);
+
+        if ($payload === null) {
+            return null;
+        }
+
+        $feed = self::hydrate($payload, $use_df_cache);
 
         if ($feed === null) {
             return null;
         }
 
         $cacheKey = Config::get('vatsimdata.cache_key');
-        Cache::put($cacheKey.'datafeed.get', $feed, Config::get('vatsimdata.datafeed_cache_ttl', 60));
+        Cache::put($cacheKey.'datafeed.get', $payload, Config::get('vatsimdata.datafeed_cache_ttl', 60));
         self::recordPilotHistory($feed);
 
         return $feed;
@@ -70,7 +97,33 @@ class Datafeed
      */
     public static function PilotHistory(): array
     {
-        return Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-history', []);
+        $cachedHistory = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-history', []);
+
+        if (! is_array($cachedHistory)) {
+            return [];
+        }
+
+        $history = [];
+
+        foreach ($cachedHistory as $cid => $points) {
+            if ((! is_int($cid) && (! is_string($cid) || ! ctype_digit($cid))) || ! is_array($points)) {
+                continue;
+            }
+
+            foreach ($points as $point) {
+                if (! is_array($point)) {
+                    continue;
+                }
+
+                $position = PilotPosition::fromArray($point);
+
+                if ($position !== null) {
+                    $history[(int) $cid][] = $position;
+                }
+            }
+        }
+
+        return $history;
     }
 
     /**
@@ -109,39 +162,94 @@ class Datafeed
         }
 
         $last = $points[count($points) - 1];
-        $previous = $points[count($points) - 2];
         $lastTime = new \DateTimeImmutable($last->recorded_at);
-        $previousTime = new \DateTimeImmutable($previous->recorded_at);
-        $interval = max(1, $lastTime->getTimestamp() - $previousTime->getTimestamp());
-        $latitudeDelta = ($last->latitude - $previous->latitude) / $interval;
-        $longitudeDelta = ($last->longitude - $previous->longitude) / $interval;
-        $altitudeDelta = (int) round(($last->altitude - $previous->altitude) / $interval);
+        $samples = array_slice($points, -3);
+        $sampleTimes = array_map(
+            static fn (PilotPosition $point): int => (new \DateTimeImmutable($point->recorded_at))->getTimestamp() - $lastTime->getTimestamp(),
+            $samples,
+        );
+
+        // Duplicate timestamps cannot describe a curve; fall back to a straight line.
+        $hasDistinctTimes = count(array_unique($sampleTimes)) === count($sampleTimes);
         $predictions = [];
 
-        foreach ([10, 20, 30] as $seconds) {
-            $predictions[] = $last->predict($latitudeDelta, $longitudeDelta, $altitudeDelta, $seconds);
+        foreach ([5, 10, 15, 20, 25] as $seconds) {
+            if ($hasDistinctTimes && count($samples) >= 3) {
+                $latitude = self::extrapolateCoordinate($samples, $sampleTimes, $seconds, 'latitude');
+                $longitude = self::extrapolateCoordinate($samples, $sampleTimes, $seconds, 'longitude');
+                $altitude = (int) round(self::extrapolateCoordinate($samples, $sampleTimes, $seconds, 'altitude'));
+            } else {
+                $previous = $points[count($points) - 2];
+                $interval = max(1, $lastTime->getTimestamp() - (new \DateTimeImmutable($previous->recorded_at))->getTimestamp());
+                $latitude = $last->latitude + (($last->latitude - $previous->latitude) / $interval * $seconds);
+                $longitude = $last->longitude + (($last->longitude - $previous->longitude) / $interval * $seconds);
+                $altitude = (int) round($last->altitude + (($last->altitude - $previous->altitude) / $interval * $seconds));
+            }
+
+            $predictions[] = new PilotPosition(
+                $latitude,
+                $longitude,
+                $altitude,
+                $last->groundspeed,
+                $last->heading,
+                $lastTime->modify(sprintf('+%d seconds', $seconds))->format(\DateTimeImmutable::ATOM),
+                true,
+            );
         }
 
         return $predictions;
     }
 
-    private static function fetch(bool $use_df_cache, string $url): ?RootObject
+    /**
+     * Evaluate a quadratic through the latest three samples at a future offset.
+     * This is intentionally local: recent turns are useful, older route history is not.
+     *
+     * @param  PilotPosition[]  $samples
+     * @param  int[]  $sampleTimes
+     */
+    private static function extrapolateCoordinate(array $samples, array $sampleTimes, int $seconds, string $coordinate): float
+    {
+        $value = 0.0;
+
+        foreach ($samples as $index => $sample) {
+            $term = (float) $sample->{$coordinate};
+            foreach ($sampleTimes as $otherIndex => $otherTime) {
+                if ($index !== $otherIndex) {
+                    $term *= ($seconds - $otherTime) / ($sampleTimes[$index] - $otherTime);
+                }
+            }
+            $value += $term;
+        }
+
+        return $value;
+    }
+
+    private static function fetch(string $url): ?string
     {
         $data = self::do_curl($url);
-        if (! $data) {
+        if (! is_string($data) || $data === '') {
             return null;
         }
 
-        $decoded = json_decode($data);
-        $payload = $use_df_cache ? ($decoded?->data ?? null) : $decoded;
+        return $data;
+    }
 
-        return $payload === null ? null : RootObject::fromJson($payload);
+    private static function hydrate(string $payload, bool $useDatafeedCache): ?RootObject
+    {
+        $decoded = json_decode($payload);
+        $data = $useDatafeedCache ? ($decoded?->data ?? null) : $decoded;
+
+        try {
+            return is_object($data) ? RootObject::fromJson($data) : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private static function recordPilotHistory(RootObject $feed): void
     {
         $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-history';
-        $history = Cache::get($cacheKey, []);
+        $history = self::PilotHistory();
         $maxPoints = max(1, (int) Config::get('vatsimdata.datafeed_history_count', 5));
 
         foreach ($feed->pilots as $pilot) {
@@ -153,7 +261,19 @@ class Datafeed
             $history[$pilot->cid] = array_slice($points, -$maxPoints);
         }
 
-        Cache::put($cacheKey, $history, Config::get('vatsimdata.datafeed_history_ttl', 86400));
+        $serializableHistory = [];
+
+        foreach ($history as $cid => $points) {
+            $serializableHistory[$cid] = array_map(
+                static fn (PilotPosition $point): array => $point->toArray(),
+                array_values(array_filter(
+                    $points,
+                    static fn (mixed $point): bool => $point instanceof PilotPosition,
+                )),
+            );
+        }
+
+        Cache::put($cacheKey, $serializableHistory, Config::get('vatsimdata.datafeed_history_ttl', 86400));
     }
 
     /**
@@ -181,10 +301,18 @@ class Datafeed
      */
     public static function PilotsWithinPolygon(Polygon $polygon): array
     {
-        return array_values(array_filter(self::Pilots(), static function (Pilot $pilot) use ($polygon): bool {
-            return isset($pilot->latitude, $pilot->longitude)
-                && $polygon->contains($pilot->latitude, $pilot->longitude);
-        }));
+        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilots.polygon.v2.'.sha1(json_encode($polygon->getPoints()));
+        $pilotCids = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($polygon): array {
+            return array_values(array_map(
+                static fn (Pilot $pilot): int => $pilot->cid,
+                array_filter(self::Pilots(), static function (Pilot $pilot) use ($polygon): bool {
+                    return isset($pilot->latitude, $pilot->longitude)
+                        && $polygon->contains($pilot->latitude, $pilot->longitude);
+                }),
+            ));
+        });
+
+        return self::pilotsForCids($pilotCids);
     }
 
     public static function PilotsArrivingAerodrome(string $icao): array
@@ -258,9 +386,8 @@ class Datafeed
     {
         $stationCallsign = Callsign::parse($ident);
         $stationFrequency = self::NormaliseFrequency($frequency);
-        $cacheKey = Config::get('vatsimdata.cache_key').'controller.station.'.$stationCallsign->value.'.'.$stationFrequency.'.'.(int) $includeObservers;
-
-        return Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($stationCallsign, $stationFrequency, $includeObservers): ?ControllerStationMatch {
+        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.controller.station.v2.'.$stationCallsign->value.'.'.$stationFrequency.'.'.(int) $includeObservers;
+        $controllerCid = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($stationCallsign, $stationFrequency, $includeObservers): int {
             foreach (self::Controllers() as $controller) {
                 $controllerCallsign = Callsign::parse($controller->callsign);
 
@@ -269,12 +396,24 @@ class Datafeed
                     && ($includeObservers || ! $controllerCallsign->observer)
                     && self::NormaliseFrequency($controller->frequency) === $stationFrequency
                 ) {
-                    return new ControllerStationMatch($controller, $stationCallsign->value, $stationFrequency);
+                    return $controller->cid;
                 }
             }
 
-            return null;
+            return 0;
         });
+
+        if (! is_int($controllerCid)) {
+            return null;
+        }
+
+        foreach (self::Controllers() as $controller) {
+            if ($controller->cid === $controllerCid) {
+                return new ControllerStationMatch($controller, $stationCallsign->value, $stationFrequency);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -283,14 +422,11 @@ class Datafeed
     public static function ControllersWithTransceiversForAerodrome(string $icao, bool $includeObservers = false): array
     {
         $icao = self::NormaliseIcao($icao);
-        $cacheKey = Config::get('vatsimdata.cache_key').'controllers.transceivers.'.$icao.'.'.(int) $includeObservers;
 
-        return Cache::remember($cacheKey, Config::get('vatsimdata.transceiver_cache_ttl', 120), static function () use ($icao, $includeObservers): array {
-            return array_map(
-                static fn (Controller $controller): ControllerWithTransceivers => new ControllerWithTransceivers($controller),
-                self::ControllersForAerodrome($icao, $includeObservers),
-            );
-        });
+        return array_map(
+            static fn (Controller $controller): ControllerWithTransceivers => new ControllerWithTransceivers($controller),
+            self::ControllersForAerodrome($icao, $includeObservers),
+        );
     }
 
     /**
@@ -323,9 +459,8 @@ class Datafeed
     public static function AerodromeSummary(string $icao): AerodromeSummary
     {
         $icao = self::NormaliseIcao($icao);
-        $cacheKey = Config::get('vatsimdata.cache_key').'aerodrome.summary.'.$icao;
-
-        return Cache::remember($cacheKey, Config::get('vatsimdata.aerodrome_summary_cache_ttl', 60), static function () use ($icao): AerodromeSummary {
+        $cacheKey = Config::get('vatsimdata.cache_key').'aerodrome.summary.v2.'.$icao;
+        $summary = Cache::remember($cacheKey, Config::get('vatsimdata.aerodrome_summary_cache_ttl', 60), static function () use ($icao): array {
             $controllers = self::ControllersForAerodrome($icao);
             $roles = array_fill_keys(['DEL', 'GND', 'TWR', 'APP', 'DEP', 'CTR', 'FSS'], false);
 
@@ -336,15 +471,27 @@ class Datafeed
                 }
             }
 
-            return new AerodromeSummary(
-                $icao,
-                count(self::PilotsDepartingFrom($icao)),
-                count(self::PilotsArrivingAt($icao)),
-                $controllers,
-                self::AtisAerodrome($icao),
-                $roles,
-            );
+            return [
+                'departures' => count(self::PilotsDepartingFrom($icao)),
+                'arrivals' => count(self::PilotsArrivingAt($icao)),
+                'controller_cids' => array_values(array_map(static fn (Controller $controller): int => $controller->cid, $controllers)),
+                'atis_callsigns' => array_values(array_map(static fn (Atis $atis): string => $atis->callsign, self::AtisAerodrome($icao))),
+                'roles' => $roles,
+            ];
         });
+
+        $controllers = self::controllersForCids($summary['controller_cids'] ?? []);
+        $atises = self::atisForCallsigns($summary['atis_callsigns'] ?? []);
+        $roles = is_array($summary['roles'] ?? null) ? $summary['roles'] : [];
+
+        return new AerodromeSummary(
+            $icao,
+            (int) ($summary['departures'] ?? 0),
+            (int) ($summary['arrivals'] ?? 0),
+            $controllers,
+            $atises,
+            $roles,
+        );
     }
 
     /**
@@ -372,6 +519,60 @@ class Datafeed
         return array_values(array_filter(self::Pilots(), static function (Pilot $pilot) use ($icao, $field): bool {
             return $pilot->flight_plan !== null && strtoupper($pilot->flight_plan->{$field}) === $icao;
         }));
+    }
+
+    /**
+     * @param  array<int, mixed>  $cids
+     * @return Pilot[]
+     */
+    private static function pilotsForCids(array $cids): array
+    {
+        $pilotsByCid = [];
+
+        foreach (self::Pilots() as $pilot) {
+            $pilotsByCid[$pilot->cid] = $pilot;
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $cid): ?Pilot => is_int($cid) ? ($pilotsByCid[$cid] ?? null) : null,
+            $cids,
+        )));
+    }
+
+    /**
+     * @param  array<int, mixed>  $cids
+     * @return Controller[]
+     */
+    private static function controllersForCids(array $cids): array
+    {
+        $controllersByCid = [];
+
+        foreach (self::Controllers() as $controller) {
+            $controllersByCid[$controller->cid] = $controller;
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $cid): ?Controller => is_int($cid) ? ($controllersByCid[$cid] ?? null) : null,
+            $cids,
+        )));
+    }
+
+    /**
+     * @param  array<int, mixed>  $callsigns
+     * @return Atis[]
+     */
+    private static function atisForCallsigns(array $callsigns): array
+    {
+        $atisesByCallsign = [];
+
+        foreach (self::Atis() as $atis) {
+            $atisesByCallsign[$atis->callsign] = $atis;
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $callsign): ?Atis => is_string($callsign) ? ($atisesByCallsign[$callsign] ?? null) : null,
+            $callsigns,
+        )));
     }
 
     private static function NormaliseIcao(string $icao): string

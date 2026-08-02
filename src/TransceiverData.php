@@ -34,34 +34,48 @@ class TransceiverData
         $cache_key = Config::get('vatsimdata.cache_key');
         $ttl = Config::get('vatsimdata.transceiver_cache_ttl', 120);
 
-        return Cache::remember($cache_key.'transceiver.get', $ttl, function () {
-            $data = self::do_curl();
-            if (! $data) {
-                return null;
-            } else {
-                $decoded = json_decode($data);
+        $cacheKey = $cache_key.'transceiver.get';
+        $payload = Cache::get($cacheKey);
+
+        if (! is_string($payload)) {
+            if ($payload !== null) {
+                Cache::forget($cacheKey);
             }
 
-            return RootObject::fromJson($decoded);
-        });
+            $payload = self::do_curl();
+
+            if (! is_string($payload) || $payload === '') {
+                return [];
+            }
+
+            if (! is_array(json_decode($payload))) {
+                return [];
+            }
+
+            Cache::put($cacheKey, $payload, $ttl);
+        }
+
+        $decoded = json_decode($payload);
+
+        try {
+            return is_array($decoded) ? RootObject::fromJson($decoded) : [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     public static function Owner(string $id): ?TransceiverOwner
     {
-        $cache_key = Config::get('vatsimdata.cache_key');
-
         $id = strtoupper($id);
         $id = preg_replace('/[^A-Z0-9_]/', '', $id);
 
-        return Cache::remember($cache_key.'transceiver.TransceiverOwner.'.$id, Config::get('vatsimdata.transceiver_cache_ttl', 120), function () use ($id) {
-            $owners = self::get();
-            foreach ($owners as $owner) {
-                if ($owner->callsign == $id) {
-                    return $owner;
-                }
+        $owners = self::get();
+        foreach ($owners as $owner) {
+            if ($owner->callsign == $id) {
+                return $owner;
             }
+        }
 
-            return null;
-        });
+        return null;
     }
 }

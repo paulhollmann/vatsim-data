@@ -27,14 +27,33 @@ class Statusfile
     public static function get(): ?RootObject
     {
         $cache_key = Config::get('vatsimdata.cache_key');
+        $cacheKey = $cache_key.'status.get';
+        $payload = Cache::get($cacheKey);
 
-        return Cache::remember($cache_key.'status.get', 60 * 60, function () {
-            $data = self::do_curl();
-            if (! $data) {
-                return null;
-            } else {
-                return RootObject::fromJson(json_decode($data));
+        if (! is_string($payload)) {
+            if ($payload !== null) {
+                Cache::forget($cacheKey);
             }
-        });
+
+            $payload = self::do_curl();
+
+            if (! is_string($payload) || $payload === '') {
+                return null;
+            }
+
+            if (! is_object(json_decode($payload))) {
+                return null;
+            }
+
+            Cache::put($cacheKey, $payload, 60 * 60);
+        }
+
+        $decoded = json_decode($payload);
+
+        try {
+            return is_object($decoded) ? RootObject::fromJson($decoded) : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

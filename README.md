@@ -48,7 +48,7 @@ $tracks = Datafeed::PilotTracks(); // array<int, PilotTrack>
 
 ### Refresh worker and movement history
 
-The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and three predicted points at exactly 10, 20, and 30 seconds after the latest point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
+The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
 
 Run it from Laravel's scheduler, for example in `routes/console.php`:
 

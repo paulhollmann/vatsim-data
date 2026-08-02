@@ -10,7 +10,7 @@ class PilotTrack
     /** @var PilotPosition[] */
     public readonly array $predicted;
 
-    /** @var PilotPosition[] Actual points followed by predicted points. */
+    /** @var PilotPosition[] Actual points followed by five predicted points. */
     public readonly array $points;
 
     /**
