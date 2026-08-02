@@ -58,7 +58,7 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('vatsimdata:refresh')->everyMinute()->withoutOverlapping();
 ```
 
-Then run `php artisan schedule:work` (or configure your normal scheduler worker). The history is stored in the configured Laravel cache store, so use a shared store when multiple application instances collect or read it.
+Then run `php artisan schedule:work` (or configure your normal scheduler worker). The refresh command also precomputes and caches `PilotTrack` objects, so flightpath predictions are ready without recalculating them during an airport-view request. `StandStatus::parseData()` similarly precomputes its default airport flight-status map after stand assignment. The history and derived data are stored in the configured Laravel cache store, so use a shared store when multiple application instances collect or read it.
 
 `RootObject`, `Pilot`, `Controller`, `Atis`, `FlightPlan`, and related classes are typed DTOs in the `VatsimData\DatafeedClasses` namespace. For example:
 

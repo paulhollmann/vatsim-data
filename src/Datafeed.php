@@ -88,6 +88,7 @@ class Datafeed
         $cacheKey = Config::get('vatsimdata.cache_key');
         Cache::put($cacheKey.'datafeed.get', $payload, Config::get('vatsimdata.datafeed_cache_ttl', 60));
         self::recordPilotHistory($feed);
+        self::cachePilotTracks();
 
         return $feed;
     }
@@ -134,6 +135,19 @@ class Datafeed
      */
     public static function PilotTracks(): array
     {
+        $trackCacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks';
+        $cachedTracks = Cache::get($trackCacheKey);
+        if (is_array($cachedTracks)) {
+            $tracks = [];
+            foreach ($cachedTracks as $cid => $track) {
+                if (is_array($track) && ($hydrated = PilotTrack::fromArray($track)) !== null) {
+                    $tracks[(int) $cid] = $hydrated;
+                }
+            }
+
+            return $tracks;
+        }
+
         $history = self::PilotHistory();
         $tracks = [];
 
@@ -147,6 +161,12 @@ class Datafeed
             );
             $tracks[$cid] = new PilotTrack($actualPoints, self::predictPilotPositions($actualPoints));
         }
+
+        Cache::put(
+            $trackCacheKey,
+            array_map(static fn (PilotTrack $track): array => $track->toArray(), $tracks),
+            Config::get('vatsimdata.datafeed_history_ttl', 86400),
+        );
 
         return $tracks;
     }
@@ -304,6 +324,24 @@ class Datafeed
         }
 
         Cache::put($cacheKey, $serializableHistory, Config::get('vatsimdata.datafeed_history_ttl', 86400));
+    }
+
+    private static function cachePilotTracks(): void
+    {
+        $tracks = [];
+        foreach (self::PilotHistory() as $cid => $points) {
+            $actualPoints = array_slice(array_values(array_filter(
+                $points,
+                static fn (mixed $point): bool => $point instanceof PilotPosition && ! $point->predicted,
+            )), -5);
+            $tracks[$cid] = new PilotTrack($actualPoints, self::predictPilotPositions($actualPoints));
+        }
+
+        Cache::put(
+            Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks',
+            array_map(static fn (PilotTrack $track): array => $track->toArray(), $tracks),
+            Config::get('vatsimdata.datafeed_history_ttl', 86400),
+        );
     }
 
     /**

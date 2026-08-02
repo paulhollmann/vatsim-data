@@ -28,6 +28,9 @@ final class StandStatus
     /** @var Aircraft[] */
     private array $aircraft = [];
 
+    /** @var array<string, FlightStatus>|null */
+    private ?array $flightStatusesCache = null;
+
     private float $maxStandDistance = 0.07;
 
     private bool $hideStandSidesWhenOccupied = true;
@@ -141,6 +144,7 @@ final class StandStatus
             $stand->clear();
         }
         $this->aircraft = [];
+        $this->flightStatusesCache = null;
 
         foreach ($pilots ?? Datafeed::Pilots() as $pilot) {
             $aircraft = new Aircraft($pilot);
@@ -150,6 +154,8 @@ final class StandStatus
             $this->aircraft[] = $aircraft;
             $this->assignNearestStand($aircraft);
         }
+
+        $this->flightStatusesCache = $this->calculateFlightStatusesForAircraft();
 
         return $this;
     }
@@ -245,6 +251,10 @@ final class StandStatus
      */
     public function flightStatuses(?iterable $pilots = null): array
     {
+        if ($pilots === null && $this->flightStatusesCache !== null) {
+            return $this->flightStatusesCache;
+        }
+
         $tracks = Datafeed::PilotTracks();
         $matchedAircraft = [];
         foreach ($this->aircraft as $aircraft) {
@@ -260,6 +270,21 @@ final class StandStatus
             $previous = count($actualPoints) >= 2 ? $actualPoints[count($actualPoints) - 2] : null;
             $status = $this->trackedFlightStatus($aircraft, $previous);
             $statuses[$callsign] = $status;
+        }
+
+        return $statuses;
+    }
+
+    /** @return array<string, FlightStatus> keyed by callsign */
+    private function calculateFlightStatusesForAircraft(): array
+    {
+        $tracks = Datafeed::PilotTracks();
+        $statuses = [];
+
+        foreach ($this->aircraft as $aircraft) {
+            $actualPoints = $tracks[$aircraft->cid]?->actual ?? [];
+            $previous = count($actualPoints) >= 2 ? $actualPoints[count($actualPoints) - 2] : null;
+            $statuses[(string) $aircraft->callsign] = $this->trackedFlightStatus($aircraft, $previous);
         }
 
         return $statuses;
