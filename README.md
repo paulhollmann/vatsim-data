@@ -69,6 +69,28 @@ $transceivers = $owner->transceivers;
 
 The library supports caching of responses to reduce the number of requests to the VATSIM servers.
 
+## Stand status
+
+`VatsimData\StandStatus` assigns nearby, stationary VATSIM pilots to airport parking stands. It replaces the separate stand-status package while retaining its familiar stand input format.
+
+```php
+use VatsimData\StandStatus;
+
+$stands = new StandStatus(51.148056, -0.190278);
+$stands->loadStandDataFromArray([
+    ['43N', 51.15712, -0.17373],
+    ['43W', 51.15712, -0.17373],
+])->parseData();
+
+foreach ($stands->occupiedStands() as $stand) {
+    echo $stand->getName().' '.$stand->occupier->callsign;
+}
+```
+
+The array input is `[stand identifier, latitude, longitude]`; `loadStandDataFromCSV()` accepts the same three columns. `parseData()` uses the cached `Datafeed::Pilots()` result automatically, or you may pass an iterable of `Pilot` objects or legacy pilot arrays directly.
+
+For CAA/Aerospace coordinates, construct it with `StandStatus::COORD_FORMAT_CAA`. `fetchAndLoadStandDataFromOSM('EGLL')` loads OpenStreetMap parking positions and caches them internally for three months. OpenStreetMap-derived data must be attributed as required by the ODbL.
+
 ## Contributing
 
 Contributions are welcome! If you'd like to contribute to this library, please follow these steps:
