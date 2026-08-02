@@ -162,6 +162,7 @@ class Datafeed
         }
 
         $last = $points[count($points) - 1];
+        $previous = $points[count($points) - 2];
         $lastTime = new \DateTimeImmutable($last->recorded_at);
         $samples = array_slice($points, -3);
         $sampleTimes = array_map(
@@ -172,6 +173,15 @@ class Datafeed
         // Duplicate timestamps cannot describe a curve; fall back to a straight line.
         $hasDistinctTimes = count(array_unique($sampleTimes)) === count($sampleTimes);
         $predictions = [];
+
+        $lastLatitude = $last->latitude;
+        $lastLongitude = $last->longitude;
+        $originLatitude = $last->latitude;
+        $originLongitude = $last->longitude;
+        $lastForwardProgress = 0.0;
+        $movementLatitude = $last->latitude - $previous->latitude;
+        $movementLongitude = $last->longitude - $previous->longitude;
+        $movementLengthSquared = ($movementLatitude ** 2) + ($movementLongitude ** 2);
 
         foreach ([5, 10, 15, 20, 25] as $seconds) {
             if ($hasDistinctTimes && count($samples) >= 3) {
@@ -185,6 +195,26 @@ class Datafeed
                 $longitude = $last->longitude + (($last->longitude - $previous->longitude) / $interval * $seconds);
                 $altitude = (int) round($last->altitude + (($last->altitude - $previous->altitude) / $interval * $seconds));
             }
+
+            if ($movementLengthSquared > 0.000000000001) {
+                $projectedLatitude = $latitude - $originLatitude;
+                $projectedLongitude = $longitude - $originLongitude;
+                $forwardProgress = ($projectedLatitude * $movementLatitude) + ($projectedLongitude * $movementLongitude);
+
+                // A quadratic fit can overshoot during hard braking. Never draw a
+                // future point behind the latest actual position or a prior
+                // predicted point.
+                if ($forwardProgress < $lastForwardProgress) {
+                    $latitude = $lastLatitude;
+                    $longitude = $lastLongitude;
+                    $forwardProgress = $lastForwardProgress;
+                }
+
+                $lastForwardProgress = $forwardProgress;
+            }
+
+            $lastLatitude = $latitude;
+            $lastLongitude = $longitude;
 
             $predictions[] = new PilotPosition(
                 $latitude,

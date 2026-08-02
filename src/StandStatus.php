@@ -208,10 +208,16 @@ final class StandStatus
 
         if ($aircraft->altitude <= 100) {
             if ($isDeparture) {
-                return $aircraft->groundspeed >= 40 ? FlightStatus::TAKING_OFF : FlightStatus::TAXI_FOR_DEPARTURE;
+                if ($aircraft->groundspeed < 30) {
+                    return FlightStatus::TAXI_FOR_DEPARTURE;
+                }
+
+                return $aircraft->groundspeed >= 40 ? FlightStatus::TAKING_OFF : FlightStatus::UNKNOWN;
             }
 
-            return $isArrival ? FlightStatus::TAXI_TO_GATE : FlightStatus::UNKNOWN;
+            return $isArrival && $aircraft->groundspeed < 30
+                ? FlightStatus::TAXI_TO_GATE
+                : FlightStatus::UNKNOWN;
         }
 
         if ($isArrival) {

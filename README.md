@@ -48,7 +48,7 @@ $tracks = Datafeed::PilotTracks(); // array<int, PilotTrack>
 
 ### Refresh worker and movement history
 
-The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
+The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Backtracking caused by a sharp slowdown is clamped so the predicted path never reverses behind the latest valid point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
 
 Run it from Laravel's scheduler, for example in `routes/console.php`:
 
@@ -274,7 +274,7 @@ if ($status === FlightStatus::TAXI_FOR_DEPARTURE) {
 
 The possible values are `AT_GATE`, `TAXI_FOR_DEPARTURE`, `TAKING_OFF`, `DEPARTING`, `ARRIVING`, `TAXI_TO_GATE`, `ARRIVED_AT_GATE`, and `UNKNOWN`.
 
-`flightStatuses()` calculates statuses for every current VATSIM pilot; pass an iterable of `Pilot` objects or legacy arrays to classify a supplied data set. The classifier is snapshot-based: it uses stand occupancy, altitude, groundspeed, and flight-plan departure/arrival ICAOs. It therefore returns `UNKNOWN` where a current snapshot cannot establish a reliable phase, rather than inferring a route-specific status.
+`flightStatuses()` calculates statuses for every current VATSIM pilot; pass an iterable of `Pilot` objects or legacy arrays to classify a supplied data set. The classifier is snapshot-based: it uses stand occupancy, altitude, groundspeed, and flight-plan departure/arrival ICAOs. An aircraft not on a stand and at airport-surface altitude is classified as `TAXI_FOR_DEPARTURE` or `TAXI_TO_GATE` when its groundspeed is below 30 knots. It therefore returns `UNKNOWN` where a current snapshot cannot establish a reliable phase, rather than inferring a route-specific status.
 
 `flightStatuses()` uses the first-class pilot history exposed by `Datafeed::PilotTracks()`. This improves transitions such as climb, descent, and gate departure movement when a flight plan is missing, without adding a second tracking store or per-aircraft cache writes.
 
