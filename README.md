@@ -25,6 +25,7 @@ All cache entries are internal and use Laravel's configured cache store. The def
 | Environment variable | Default | Cached data |
 | --- | ---: | --- |
 | `VATSIM_DATAFEED_CACHE_TTL` | 15 seconds | Main VATSIM datafeed and derived station lookups |
+| `VATSIM_DATAFEED_STALE_CACHE_TTL` | 86400 seconds | How long the last known-good datafeed remains available during an invalid upstream response |
 | `VATSIM_DATAFEED_HISTORY_COUNT` | 5 | Movement points retained per pilot |
 | `VATSIM_DATAFEED_HISTORY_TTL` | 86400 seconds | Lifetime of pilot movement history |
 | `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per ICAO code |
@@ -32,6 +33,8 @@ All cache entries are internal and use Laravel's configured cache store. The def
 | `VATSIM_AERODROME_SUMMARY_CACHE_TTL` | 60 seconds | Aerodrome summaries |
 
 OpenStreetMap stand data is cached for three months. Change a TTL only when your application needs a different freshness/performance trade-off; no cache calls are required in application code.
+
+To protect consumers from an invalid or incomplete VATSIM response, a datafeed with fewer than 50 pilots does not replace the last known-good feed. The prior accepted data remains available for up to one day by default; its retention is configurable with the variable above.
 
 ### Freshness timestamps
 

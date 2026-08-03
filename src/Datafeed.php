@@ -47,26 +47,35 @@ class Datafeed
         $cacheKey = $cache_key.'datafeed.get';
         $payload = Cache::get($cacheKey);
 
-        if (! is_string($payload)) {
+        if (is_string($payload)) {
+            $feed = self::hydrate($payload, $use_df_cache);
+
+            if ($feed !== null && self::hasMinimumPilotCount($feed)) {
+                return $feed;
+            }
+
+            Cache::forget($cacheKey);
+        } else {
             if ($payload !== null) {
                 Cache::forget($cacheKey);
             }
-
-            $payload = self::fetch($url);
-
-            if ($payload === null) {
-                return null;
-            }
-
-            if (self::hydrate($payload, $use_df_cache) === null) {
-                return null;
-            }
-
-            Cache::put($cacheKey, $payload, $ttl);
-            CacheFreshness::record($cacheKey, (int) $ttl);
         }
 
-        return self::hydrate($payload, $use_df_cache);
+        $payload = self::fetch($url);
+
+        if ($payload === null) {
+            return self::lastKnownGoodFeed($use_df_cache);
+        }
+
+        $feed = self::hydrate($payload, $use_df_cache);
+
+        if ($feed === null || ! self::hasMinimumPilotCount($feed)) {
+            return self::lastKnownGoodFeed($use_df_cache);
+        }
+
+        self::cacheAcceptedFeed($payload, (int) $ttl);
+
+        return $feed;
     }
 
     /** Fetch the feed immediately, refresh its cache entry, and record pilot positions. */
@@ -79,18 +88,16 @@ class Datafeed
         $payload = self::fetch($url);
 
         if ($payload === null) {
-            return null;
+            return self::lastKnownGoodFeed($use_df_cache);
         }
 
         $feed = self::hydrate($payload, $use_df_cache);
 
-        if ($feed === null) {
-            return null;
+        if ($feed === null || ! self::hasMinimumPilotCount($feed)) {
+            return self::lastKnownGoodFeed($use_df_cache);
         }
 
-        $cacheKey = Config::get('vatsimdata.cache_key');
-        Cache::put($cacheKey.'datafeed.get', $payload, Config::get('vatsimdata.datafeed_cache_ttl', 15));
-        CacheFreshness::record($cacheKey.'datafeed.get', (int) Config::get('vatsimdata.datafeed_cache_ttl', 15));
+        self::cacheAcceptedFeed($payload, (int) Config::get('vatsimdata.datafeed_cache_ttl', 15));
         self::recordPilotHistory($feed);
         self::cachePilotTracks();
 
@@ -324,6 +331,30 @@ class Datafeed
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private static function hasMinimumPilotCount(RootObject $feed): bool
+    {
+        return count($feed->pilots) >= 50;
+    }
+
+    private static function cacheAcceptedFeed(string $payload, int $ttl): void
+    {
+        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.get';
+        Cache::put($cacheKey, $payload, $ttl);
+        Cache::put(
+            $cacheKey.'.last-known-good',
+            $payload,
+            Config::get('vatsimdata.datafeed_stale_cache_ttl', 86400),
+        );
+        CacheFreshness::record($cacheKey, $ttl);
+    }
+
+    private static function lastKnownGoodFeed(bool $useDatafeedCache): ?RootObject
+    {
+        $payload = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.get.last-known-good');
+
+        return is_string($payload) ? self::hydrate($payload, $useDatafeedCache) : null;
     }
 
     private static function recordPilotHistory(RootObject $feed): void
