@@ -6,7 +6,7 @@ return [
     'datafeed_uncached_url' => env('VATSIM_DATAFEED_UNCACHED_URL', 'https://data.vatsim.net/v3/vatsim-data.json'),
     'status_url' => env('VATSIM_DATAFEED_STATUS_URL', 'https://status.vatsim.net/status.json'),
     'cache_key' => env('VATSIM_DATAFEED_CACHE_KEY_PREFIX', 'vatsimdatafeed.'),
-    'datafeed_cache_ttl' => env('VATSIM_DATAFEED_CACHE_TTL', 20),
+    'datafeed_cache_ttl' => env('VATSIM_DATAFEED_CACHE_TTL', 15),
     'datafeed_history_count' => env('VATSIM_DATAFEED_HISTORY_COUNT', 5),
     'datafeed_history_ttl' => env('VATSIM_DATAFEED_HISTORY_TTL', 86400),
     'metar_cache_ttl' => env('VATSIM_METAR_CACHE_TTL', 300),

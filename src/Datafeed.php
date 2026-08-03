@@ -2,6 +2,7 @@
 
 namespace VatsimData;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use VatsimData\DatafeedClasses\AerodromeSummary;
@@ -13,6 +14,7 @@ use VatsimData\DatafeedClasses\Pilot;
 use VatsimData\DatafeedClasses\PilotPosition;
 use VatsimData\DatafeedClasses\PilotTrack;
 use VatsimData\DatafeedClasses\RootObject;
+use VatsimData\Helpers\CacheFreshness;
 use VatsimData\Helpers\Callsign;
 use VatsimData\Helpers\Polygon;
 
@@ -40,7 +42,7 @@ class Datafeed
         $url = $use_df_cache ? $url_cached : $url_uncached;
 
         $cache_key = Config::get('vatsimdata.cache_key');
-        $ttl = Config::get('vatsimdata.datafeed_cache_ttl', 60);
+        $ttl = Config::get('vatsimdata.datafeed_cache_ttl', 15);
 
         $cacheKey = $cache_key.'datafeed.get';
         $payload = Cache::get($cacheKey);
@@ -61,6 +63,7 @@ class Datafeed
             }
 
             Cache::put($cacheKey, $payload, $ttl);
+            CacheFreshness::record($cacheKey, (int) $ttl);
         }
 
         return self::hydrate($payload, $use_df_cache);
@@ -86,11 +89,38 @@ class Datafeed
         }
 
         $cacheKey = Config::get('vatsimdata.cache_key');
-        Cache::put($cacheKey.'datafeed.get', $payload, Config::get('vatsimdata.datafeed_cache_ttl', 60));
+        Cache::put($cacheKey.'datafeed.get', $payload, Config::get('vatsimdata.datafeed_cache_ttl', 15));
+        CacheFreshness::record($cacheKey.'datafeed.get', (int) Config::get('vatsimdata.datafeed_cache_ttl', 15));
         self::recordPilotHistory($feed);
         self::cachePilotTracks();
 
         return $feed;
+    }
+
+    /**
+     * Return when this package last fetched the datafeed successfully.
+     */
+    public static function FetchedAt(): ?DateTimeImmutable
+    {
+        return CacheFreshness::get(Config::get('vatsimdata.cache_key').'datafeed.get');
+    }
+
+    /**
+     * Return VATSIM's own update timestamp from the current datafeed.
+     */
+    public static function UpdatedAt(): ?DateTimeImmutable
+    {
+        $timestamp = self::get()?->general->update_timestamp;
+
+        if (! is_string($timestamp)) {
+            return null;
+        }
+
+        try {
+            return new DateTimeImmutable($timestamp);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -183,10 +213,10 @@ class Datafeed
 
         $last = $points[count($points) - 1];
         $previous = $points[count($points) - 2];
-        $lastTime = new \DateTimeImmutable($last->recorded_at);
+        $lastTime = new DateTimeImmutable($last->recorded_at);
         $samples = array_slice($points, -3);
         $sampleTimes = array_map(
-            static fn (PilotPosition $point): int => (new \DateTimeImmutable($point->recorded_at))->getTimestamp() - $lastTime->getTimestamp(),
+            static fn (PilotPosition $point): int => (new DateTimeImmutable($point->recorded_at))->getTimestamp() - $lastTime->getTimestamp(),
             $samples,
         );
 
@@ -210,7 +240,7 @@ class Datafeed
                 $altitude = (int) round(self::extrapolateCoordinate($samples, $sampleTimes, $seconds, 'altitude'));
             } else {
                 $previous = $points[count($points) - 2];
-                $interval = max(1, $lastTime->getTimestamp() - (new \DateTimeImmutable($previous->recorded_at))->getTimestamp());
+                $interval = max(1, $lastTime->getTimestamp() - (new DateTimeImmutable($previous->recorded_at))->getTimestamp());
                 $latitude = $last->latitude + (($last->latitude - $previous->latitude) / $interval * $seconds);
                 $longitude = $last->longitude + (($last->longitude - $previous->longitude) / $interval * $seconds);
                 $altitude = (int) round($last->altitude + (($last->altitude - $previous->altitude) / $interval * $seconds));
@@ -242,7 +272,7 @@ class Datafeed
                 $altitude,
                 $last->groundspeed,
                 $last->heading,
-                $lastTime->modify(sprintf('+%d seconds', $seconds))->format(\DateTimeImmutable::ATOM),
+                $lastTime->modify(sprintf('+%d seconds', $seconds))->format(DateTimeImmutable::ATOM),
                 true,
             );
         }
@@ -370,7 +400,7 @@ class Datafeed
     public static function PilotsWithinPolygon(Polygon $polygon): array
     {
         $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilots.polygon.v2.'.sha1(json_encode($polygon->getPoints()));
-        $pilotCids = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($polygon): array {
+        $pilotCids = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 15), static function () use ($polygon): array {
             return array_values(array_map(
                 static fn (Pilot $pilot): int => $pilot->cid,
                 array_filter(self::Pilots(), static function (Pilot $pilot) use ($polygon): bool {
@@ -455,7 +485,7 @@ class Datafeed
         $stationCallsign = Callsign::parse($ident);
         $stationFrequency = self::NormaliseFrequency($frequency);
         $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.controller.station.v2.'.$stationCallsign->value.'.'.$stationFrequency.'.'.(int) $includeObservers;
-        $controllerCid = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 60), static function () use ($stationCallsign, $stationFrequency, $includeObservers): int {
+        $controllerCid = Cache::remember($cacheKey, Config::get('vatsimdata.datafeed_cache_ttl', 15), static function () use ($stationCallsign, $stationFrequency, $includeObservers): int {
             foreach (self::Controllers() as $controller) {
                 $controllerCallsign = Callsign::parse($controller->callsign);
 

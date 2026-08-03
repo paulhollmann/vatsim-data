@@ -2,8 +2,10 @@
 
 namespace VatsimData;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use VatsimData\Helpers\CacheFreshness;
 use VatsimData\TransceiverClasses\RootObject;
 use VatsimData\TransceiverClasses\TransceiverOwner;
 
@@ -53,6 +55,7 @@ class TransceiverData
             }
 
             Cache::put($cacheKey, $payload, $ttl);
+            CacheFreshness::record($cacheKey, (int) $ttl);
         }
 
         $decoded = json_decode($payload);
@@ -77,5 +80,11 @@ class TransceiverData
         }
 
         return null;
+    }
+
+    /** Return when this package last fetched transceiver data successfully. */
+    public static function FetchedAt(): ?DateTimeImmutable
+    {
+        return CacheFreshness::get(Config::get('vatsimdata.cache_key').'transceiver.get');
     }
 }

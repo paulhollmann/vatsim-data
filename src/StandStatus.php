@@ -2,9 +2,11 @@
 
 namespace VatsimData;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Cache;
 use VatsimData\DatafeedClasses\Pilot;
 use VatsimData\DatafeedClasses\PilotPosition;
+use VatsimData\Helpers\CacheFreshness;
 use VatsimData\Helpers\Coordinates;
 use VatsimData\StandData\Aircraft;
 use VatsimData\StandData\FlightStatus;
@@ -48,14 +50,19 @@ final class StandStatus
 
     private ?string $airportIcao;
 
+    /** Aerodrome elevation in feet above mean sea level. */
+    private float $aerodromeElevation = 0.0;
+
     public function __construct(
         private readonly float $airportLatitude,
         private readonly float $airportLongitude,
         private readonly int $standCoordinateFormat = self::COORD_FORMAT_DECIMAL,
         ?string $airportIcao = null,
+        float|int|null $aerodromeElevation = null,
     ) {
         Coordinates::assertValid($airportLatitude, $airportLongitude);
         $this->airportIcao = $airportIcao !== null ? strtoupper(trim($airportIcao)) : null;
+        $this->setAerodromeElevation($aerodromeElevation ?? 0.0);
     }
 
     /** @param array<int, array{0: string|int, 1: string|float|int, 2: string|float|int}> $standData */
@@ -105,7 +112,9 @@ final class StandStatus
         }
 
         /** @var array<int, array{0: string, 1: float, 2: float}> $stands */
-        $stands = Cache::remember('vatsimdata.stands.osm.'.$icao, 60 * 60 * 24 * 90, function (): array {
+        $cacheKey = 'vatsimdata.stands.osm.'.$icao;
+        $cacheTtl = 60 * 60 * 24 * 90;
+        $stands = Cache::remember($cacheKey, $cacheTtl, function () use ($cacheKey, $cacheTtl): array {
             $radius = (int) ceil($this->maxDistanceFromAirport * 3000);
             $query = sprintf('[out:json];nwr["aeroway"="parking_position"](around:%d,%F,%F);out tags center;', $radius, $this->airportLatitude, $this->airportLongitude);
             $curl = curl_init('https://overpass-api.de/api/interpreter?data='.rawurlencode($query));
@@ -127,10 +136,18 @@ final class StandStatus
                 }
             }
 
+            CacheFreshness::record($cacheKey, $cacheTtl);
+
             return $stands;
         });
 
         return $this->loadStandDataFromArray($stands);
+    }
+
+    /** Return when OSM stand data for an ICAO was last fetched successfully. */
+    public static function OSMFetchedAt(string $icao): ?DateTimeImmutable
+    {
+        return CacheFreshness::get('vatsimdata.stands.osm.'.strtoupper(trim($icao)));
     }
 
     /** @param iterable<array<string, mixed>|Pilot> $pilots */
@@ -207,12 +224,13 @@ final class StandStatus
     {
         $isDeparture = $this->airportIcao !== null && $aircraft->flightPlanAirport('departure') === $this->airportIcao;
         $isArrival = $this->airportIcao !== null && $aircraft->flightPlanAirport('arrival') === $this->airportIcao;
+        $altitudeAboveAerodrome = $this->altitudeAboveAerodrome($aircraft);
 
         if ($aircraft->onStand()) {
             return $isArrival ? FlightStatus::ARRIVED_AT_GATE : FlightStatus::AT_GATE;
         }
 
-        if ($aircraft->altitude <= 100) {
+        if ($altitudeAboveAerodrome <= 100) {
             if ($isDeparture) {
                 if ($aircraft->groundspeed < 30) {
                     return FlightStatus::TAXI_FOR_DEPARTURE;
@@ -231,7 +249,7 @@ final class StandStatus
         }
 
         if ($isDeparture) {
-            return $aircraft->altitude <= 2000 && $aircraft->groundspeed >= 40
+            return $altitudeAboveAerodrome <= 2000 && $aircraft->groundspeed >= 40
                 ? FlightStatus::TAKING_OFF
                 : FlightStatus::DEPARTING;
         }
@@ -302,6 +320,29 @@ final class StandStatus
         return $this->airportIcao;
     }
 
+    /**
+     * Set the aerodrome elevation in feet MSL.
+     *
+     * VATSIM pilot altitudes are MSL values; stand matching and phase
+     * detection use this elevation to calculate altitude above the aerodrome.
+     */
+    public function setAerodromeElevation(float|int $elevation): self
+    {
+        if (! is_finite((float) $elevation)) {
+            throw new \InvalidArgumentException('Aerodrome elevation must be a finite value in feet MSL.');
+        }
+
+        $this->aerodromeElevation = (float) $elevation;
+
+        return $this;
+    }
+
+    /** Return the aerodrome elevation in feet MSL. */
+    public function getAerodromeElevation(): float
+    {
+        return $this->aerodromeElevation;
+    }
+
     private function trackedFlightStatus(Aircraft $aircraft, ?PilotPosition $previous): FlightStatus
     {
         $status = $this->flightStatus($aircraft);
@@ -309,7 +350,7 @@ final class StandStatus
             return $status;
         }
 
-        $previousObservedAt = new \DateTimeImmutable($previous->recorded_at);
+        $previousObservedAt = new DateTimeImmutable($previous->recorded_at);
         $verticalSpeed = ((int) $aircraft->altitude - $previous->altitude) / max(1, time() - $previousObservedAt->getTimestamp());
         $distanceTravelled = Coordinates::distance(
             $previous->latitude,
@@ -319,10 +360,13 @@ final class StandStatus
         );
 
         if ($status === FlightStatus::UNKNOWN) {
-            if ($aircraft->altitude > 100 && $verticalSpeed > 2.5) {
-                return $previous->altitude <= 100 ? FlightStatus::TAKING_OFF : FlightStatus::DEPARTING;
+            $altitudeAboveAerodrome = $this->altitudeAboveAerodrome($aircraft);
+            $previousAltitudeAboveAerodrome = $previous->altitude - $this->aerodromeElevation;
+
+            if ($altitudeAboveAerodrome > 100 && $verticalSpeed > 2.5) {
+                return $previousAltitudeAboveAerodrome <= 100 ? FlightStatus::TAKING_OFF : FlightStatus::DEPARTING;
             }
-            if ($aircraft->altitude > 100 && $verticalSpeed < -2.5) {
+            if ($altitudeAboveAerodrome > 100 && $verticalSpeed < -2.5) {
                 return FlightStatus::ARRIVING;
             }
             if ($aircraft->altitude <= 100 && $previous->groundspeed <= 5 && $distanceTravelled > 0.005) {
@@ -434,8 +478,13 @@ final class StandStatus
     private function isEligible(Aircraft $aircraft): bool
     {
         return Coordinates::distance($aircraft->latitude, $aircraft->longitude, $this->airportLatitude, $this->airportLongitude) < $this->maxDistanceFromAirport
-            && $aircraft->altitude <= $this->maxAircraftAltitude
+            && $this->altitudeAboveAerodrome($aircraft) <= $this->maxAircraftAltitude
             && $aircraft->groundspeed <= $this->maxAircraftGroundspeed;
+    }
+
+    private function altitudeAboveAerodrome(Aircraft $aircraft): float
+    {
+        return $aircraft->altitude - $this->aerodromeElevation;
     }
 
     private function assignNearestStand(Aircraft $aircraft): void

@@ -24,7 +24,7 @@ All cache entries are internal and use Laravel's configured cache store. The def
 
 | Environment variable | Default | Cached data |
 | --- | ---: | --- |
-| `VATSIM_DATAFEED_CACHE_TTL` | 60 seconds | Main VATSIM datafeed and derived station lookups |
+| `VATSIM_DATAFEED_CACHE_TTL` | 15 seconds | Main VATSIM datafeed and derived station lookups |
 | `VATSIM_DATAFEED_HISTORY_COUNT` | 5 | Movement points retained per pilot |
 | `VATSIM_DATAFEED_HISTORY_TTL` | 86400 seconds | Lifetime of pilot movement history |
 | `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per ICAO code |
@@ -32,6 +32,19 @@ All cache entries are internal and use Laravel's configured cache store. The def
 | `VATSIM_AERODROME_SUMMARY_CACHE_TTL` | 60 seconds | Aerodrome summaries |
 
 OpenStreetMap stand data is cached for three months. Change a TTL only when your application needs a different freshness/performance trade-off; no cache calls are required in application code.
+
+### Freshness timestamps
+
+Every external source exposes the time at which this package last fetched a successful response. These methods never make an additional request and return `null` until the corresponding source has been fetched at least once. Timestamps are returned as `DateTimeImmutable` instances in UTC.
+
+```php
+Datafeed::FetchedAt();                 // Package fetch time for the VATSIM datafeed
+Datafeed::UpdatedAt();                 // VATSIM's own timestamp within the datafeed
+Statusfile::FetchedAt();               // VATSIM status file
+TransceiverData::FetchedAt();          // Transceiver feed
+Metar::FetchedAt('EDDF');              // METAR for one ICAO code
+StandStatus::OSMFetchedAt('EDDF');     // OSM stand data for one ICAO code
+```
 
 ## Live datafeed
 
@@ -55,7 +68,7 @@ Run it from Laravel's scheduler, for example in `routes/console.php`:
 ```php
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('vatsimdata:refresh')->everyMinute()->withoutOverlapping();
+Schedule::command('vatsimdata:refresh')->everyFifteenSeconds()->withoutOverlapping();
 ```
 
 Then run `php artisan schedule:work` (or configure your normal scheduler worker). The refresh command also precomputes and caches `PilotTrack` objects, so flightpath predictions are ready without recalculating them during an airport-view request. `StandStatus::parseData()` similarly precomputes its default airport flight-status map after stand assignment. The history and derived data are stored in the configured Laravel cache store, so use a shared store when multiple application instances collect or read it.
@@ -179,6 +192,23 @@ foreach ($stands->occupiedStands() as $stand) {
 }
 ```
 
+### Aerodrome elevation
+
+VATSIM reports altitude in feet MSL. Supply the aerodrome elevation (also feet MSL) to make stand eligibility and the ground/taxi/takeoff/arrival phase thresholds relative to the airport. The optional final constructor argument preserves the existing constructor contract; omitting it retains the previous sea-level behaviour.
+
+```php
+$stands = new StandStatus(
+    50.033333,
+    8.570556,
+    StandStatus::COORD_FORMAT_DECIMAL,
+    'EDDF',
+    364, // aerodrome elevation in feet MSL
+);
+
+// Or configure it after construction:
+$stands->setAerodromeElevation(364);
+```
+
 `parseData()` reads the cached `Datafeed::Pilots()` result by default. For tests or application-owned sources, pass an iterable of typed `Pilot` objects or the legacy pilot-array shape:
 
 ```php
@@ -283,7 +313,7 @@ Record history by scheduling the built-in refresh command at the interval your a
 ```php
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('vatsimdata:refresh')->everyMinute();
+Schedule::command('vatsimdata:refresh')->everyFifteenSeconds();
 ```
 
 The command refreshes the datafeed cache and stores a compact position history per VATSIM CID. History length and retention are controlled by `VATSIM_DATAFEED_HISTORY_COUNT` (default `5`) and `VATSIM_DATAFEED_HISTORY_TTL` (default `86400` seconds).

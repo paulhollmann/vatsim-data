@@ -2,8 +2,10 @@
 
 namespace VatsimData;
 
+use DateTimeImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use VatsimData\Helpers\CacheFreshness;
 
 class Metar
 {
@@ -30,13 +32,25 @@ class Metar
         $ttl = Config::get('vatsimdata.metar_cache_ttl', 300);
         $icao = strtoupper(trim($icao));
 
-        return Cache::remember($cache_key."metar.get.$icao", $ttl, function () use ($icao) {
+        $cacheKey = $cache_key."metar.get.$icao";
+
+        return Cache::remember($cacheKey, $ttl, function () use ($icao, $cacheKey, $ttl) {
             $data = self::do_curl($icao);
             if (! $data) {
                 return null;
-            } else {
-                return $data;
             }
+
+            CacheFreshness::record($cacheKey, (int) $ttl);
+
+            return $data;
         });
+    }
+
+    /** Return when this package last fetched the METAR for an ICAO code successfully. */
+    public static function FetchedAt(string $icao): ?DateTimeImmutable
+    {
+        $icao = strtoupper(trim($icao));
+
+        return CacheFreshness::get(Config::get('vatsimdata.cache_key')."metar.get.$icao");
     }
 }
