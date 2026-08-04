@@ -33,6 +33,12 @@ final class Aircraft
         $this->standIndex = $standIndex;
     }
 
+    /** @return array<string, mixed>|Pilot */
+    public function pilot(): array|Pilot
+    {
+        return $this->pilot;
+    }
+
     public function flightPlanAirport(string $field): ?string
     {
         $flightPlan = $this->flight_plan;

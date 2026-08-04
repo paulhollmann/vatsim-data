@@ -62,6 +62,20 @@ $history = Datafeed::PilotHistory(); // array<int, PilotPosition[]>
 $tracks = Datafeed::PilotTracks(); // array<int, PilotTrack>
 ```
 
+Within one PHP request, `Datafeed::get()` reuses the same hydrated feed. Airport
+views should prefer scoped queries so the complete typed feed is not hydrated
+just to match a small set of aircraft:
+
+```php
+$pilots = Datafeed::PilotsNearAerodrome('EDDF', 50.033333, 8.570556, 2.0);
+$tracks = Datafeed::PilotTracksForCids(array_map(fn ($pilot) => $pilot->cid, $pilots));
+$controllers = Datafeed::ControllersForAerodrome('EDDF');
+```
+
+`PilotTracksForCids()` hydrates only the requested track points. Track cache
+entries are stored as arrays under a versioned key, so old serialized object
+entries are naturally ignored after package updates.
+
 ### Refresh worker and movement history
 
 The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Backtracking caused by a sharp slowdown is clamped so the predicted path never reverses behind the latest valid point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
@@ -212,7 +226,9 @@ $stands = new StandStatus(
 $stands->setAerodromeElevation(364);
 ```
 
-`parseData()` reads the cached `Datafeed::Pilots()` result by default. For tests or application-owned sources, pass an iterable of typed `Pilot` objects or the legacy pilot-array shape:
+When an ICAO is supplied to the constructor, `parseData()` uses
+`Datafeed::PilotsNearAerodrome()` by default. For tests or application-owned
+sources, pass an iterable of typed `Pilot` objects or the legacy pilot-array shape:
 
 ```php
 $stands->parseData([

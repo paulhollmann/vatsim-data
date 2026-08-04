@@ -163,7 +163,16 @@ final class StandStatus
         $this->aircraft = [];
         $this->flightStatusesCache = null;
 
-        foreach ($pilots ?? Datafeed::Pilots() as $pilot) {
+        $pilots ??= $this->airportIcao !== null
+            ? Datafeed::PilotsNearAerodrome(
+                $this->airportIcao,
+                $this->airportLatitude,
+                $this->airportLongitude,
+                $this->maxDistanceFromAirport,
+            )
+            : Datafeed::Pilots();
+
+        foreach ($pilots as $pilot) {
             $aircraft = new Aircraft($pilot);
             if (! $this->isEligible($aircraft)) {
                 continue;
@@ -273,14 +282,27 @@ final class StandStatus
             return $this->flightStatusesCache;
         }
 
-        $tracks = Datafeed::PilotTracks();
         $matchedAircraft = [];
         foreach ($this->aircraft as $aircraft) {
             $matchedAircraft[(string) $aircraft->callsign] = $aircraft;
         }
 
         $statuses = [];
-        foreach ($pilots ?? Datafeed::Pilots() as $pilot) {
+        $pilots ??= array_map(
+            static fn (Aircraft $aircraft): array|Pilot => $aircraft->pilot(),
+            $this->aircraft,
+        );
+
+        if (! is_array($pilots)) {
+            $pilots = iterator_to_array($pilots);
+        }
+
+        $tracks = Datafeed::PilotTracksForCids(array_map(
+            static fn (mixed $pilot): int => is_array($pilot) ? (int) ($pilot['cid'] ?? 0) : $pilot->cid,
+            $pilots,
+        ));
+
+        foreach ($pilots as $pilot) {
             $callsign = is_array($pilot) ? (string) ($pilot['callsign'] ?? '') : $pilot->callsign;
             $cid = is_array($pilot) ? (int) ($pilot['cid'] ?? 0) : $pilot->cid;
             $aircraft = $matchedAircraft[$callsign] ?? new Aircraft($pilot);
@@ -296,7 +318,10 @@ final class StandStatus
     /** @return array<string, FlightStatus> keyed by callsign */
     private function calculateFlightStatusesForAircraft(): array
     {
-        $tracks = Datafeed::PilotTracks();
+        $tracks = Datafeed::PilotTracksForCids(array_map(
+            static fn (Aircraft $aircraft): int => $aircraft->cid,
+            $this->aircraft,
+        ));
         $statuses = [];
 
         foreach ($this->aircraft as $aircraft) {
