@@ -9,48 +9,74 @@ use VatsimData\Helpers\CacheFreshness;
 
 class Metar
 {
-    private static function do_curl(string $icao): string|bool
+    private static function do_curl(string $prefix): string|false
     {
-        $metar_urls = Statusfile::get()->metar;
-        $url = $metar_urls[array_rand($metar_urls)].'?id='.$icao;
+        $url = rtrim(Config::get('vatsimdata.metar_url', 'https://metar.vatsim.net'), '/').'/'.$prefix.'?format=json';
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, false);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'vatsim-data (https://github.com/paulhollmann/vatsim-data)');
         $data = curl_exec($ch);
-        curl_close($ch);
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 
-        return $data;
+        return $status === 200 && is_string($data) ? $data : false;
     }
 
     public static function get(string $icao): ?string
     {
-        $cache_key = Config::get('vatsimdata.cache_key');
-        $ttl = Config::get('vatsimdata.metar_cache_ttl', 300);
         $icao = strtoupper(trim($icao));
+        if (strlen($icao) < 2) {
+            return null;
+        }
 
-        $cacheKey = $cache_key."metar.get.$icao";
+        $prefix = substr($icao, 0, 2);
+        $cacheKey = Config::get('vatsimdata.cache_key')."metar.prefix.$prefix";
+        $ttl = Config::get('vatsimdata.metar_cache_ttl', 300);
 
-        return Cache::remember($cacheKey, $ttl, function () use ($icao, $cacheKey, $ttl) {
-            $data = self::do_curl($icao);
-            if (! $data) {
+        $metars = Cache::remember($cacheKey, $ttl, function () use ($prefix, $cacheKey, $ttl) {
+            $data = self::do_curl($prefix);
+            if ($data === false) {
                 return null;
+            }
+
+            $decoded = json_decode($data, true);
+            if (! is_array($decoded) || ! array_is_list($decoded)) {
+                return null;
+            }
+
+            $metars = [];
+            foreach ($decoded as $entry) {
+                if (! is_array($entry) || ! isset($entry['id'], $entry['metar'])
+                    || ! is_string($entry['id']) || ! is_string($entry['metar'])
+                    || ! preg_match('/^[A-Z0-9]{4}$/', $entry['id']) || $entry['metar'] === '') {
+                    return null;
+                }
+
+                $metars[$entry['id']] = $entry['id'].' '.$entry['metar'];
             }
 
             CacheFreshness::record($cacheKey, (int) $ttl);
 
-            return $data;
+            return $metars;
         });
+
+        return is_array($metars) ? ($metars[$icao] ?? null) : null;
     }
 
     /** Return when this package last fetched the METAR for an ICAO code successfully. */
     public static function FetchedAt(string $icao): ?DateTimeImmutable
     {
         $icao = strtoupper(trim($icao));
+        if (strlen($icao) < 2) {
+            return null;
+        }
 
-        return CacheFreshness::get(Config::get('vatsimdata.cache_key')."metar.get.$icao");
+        $cacheKey = Config::get('vatsimdata.cache_key').'metar.prefix.'.substr($icao, 0, 2);
+        $metars = Cache::get($cacheKey);
+
+        return is_array($metars) && isset($metars[$icao]) ? CacheFreshness::get($cacheKey) : null;
     }
 }

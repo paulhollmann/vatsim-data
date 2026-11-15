@@ -28,7 +28,8 @@ All cache entries are internal and use Laravel's configured cache store. The def
 | `VATSIM_DATAFEED_STALE_CACHE_TTL` | 86400 seconds | How long the last known-good datafeed remains available during an invalid upstream response |
 | `VATSIM_DATAFEED_HISTORY_COUNT` | 5 | Movement points retained per pilot |
 | `VATSIM_DATAFEED_HISTORY_TTL` | 86400 seconds | Lifetime of pilot movement history |
-| `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per ICAO code |
+| `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per two-character ICAO prefix |
+| `VATSIM_METAR_URL` | `https://metar.vatsim.net` | METAR API base URL |
 | `VATSIM_TRANSCEIVER_CACHE_TTL` | 120 seconds | Transceiver data and controller transceiver lookups |
 | `VATSIM_AERODROME_SUMMARY_CACHE_TTL` | 60 seconds | Aerodrome summaries |
 
@@ -187,6 +188,8 @@ $metar = Metar::get('EDDF');
 $owner = TransceiverData::Owner('EDDF_N_TWR');
 $transceivers = $owner?->transceivers ?? [];
 ```
+
+METAR calls fetch the first two characters of the ICAO code from VATSIM's prefix endpoint. For example, requests for `EDDF` and `EDDM` share the cached `/ED` response, while `Metar::get()` returns only the requested airport's report.
 
 ## Stand status
 
