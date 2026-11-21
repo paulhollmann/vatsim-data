@@ -95,6 +95,11 @@ class Datafeed
     /** Fetch the feed immediately, refresh its cache entry, and record pilot positions. */
     public static function refresh(): ?RootObject
     {
+        // Older versions kept disconnected pilots indefinitely by renewing the
+        // TTL of a single ever-growing history entry on every refresh.
+        Cache::forget(Config::get('vatsimdata.cache_key').'datafeed.pilot-history');
+        Cache::forget(Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v2');
+
         $use_df_cache = Config::get('vatsimdata.use_datafeed_cache');
         $url = $use_df_cache
             ? Config::get('vatsimdata.datafeed_cached_url')
@@ -152,7 +157,7 @@ class Datafeed
      */
     public static function PilotHistory(): array
     {
-        $cachedHistory = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-history', []);
+        $cachedHistory = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-history.v2', []);
 
         if (! is_array($cachedHistory)) {
             return [];
@@ -189,7 +194,7 @@ class Datafeed
      */
     public static function PilotTracks(): array
     {
-        $trackCacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v2';
+        $trackCacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v3';
         $cachedTracks = Cache::get($trackCacheKey);
         if (is_array($cachedTracks)) {
             $tracks = [];
@@ -245,7 +250,7 @@ class Datafeed
             return [];
         }
 
-        $cachedTracks = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v2');
+        $cachedTracks = Cache::get(Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v3');
         if (! is_array($cachedTracks)) {
             $cachedTracks = [];
         }
@@ -417,9 +422,17 @@ class Datafeed
 
     private static function recordPilotHistory(RootObject $feed): void
     {
-        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-history';
+        $cacheKey = Config::get('vatsimdata.cache_key').'datafeed.pilot-history.v2';
         $history = self::PilotHistory();
         $maxPoints = max(1, (int) Config::get('vatsimdata.datafeed_history_count', 5));
+        $inactiveCutoff = time() - max(0, (int) Config::get('vatsimdata.datafeed_inactive_history_ttl', 600));
+
+        foreach ($history as $cid => $points) {
+            $lastPoint = end($points);
+            if (! $lastPoint instanceof PilotPosition || strtotime($lastPoint->recorded_at) < $inactiveCutoff) {
+                unset($history[$cid]);
+            }
+        }
 
         foreach ($feed->pilots as $pilot) {
             $points = array_values(array_filter(
@@ -457,7 +470,7 @@ class Datafeed
         }
 
         Cache::put(
-            Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v2',
+            Config::get('vatsimdata.cache_key').'datafeed.pilot-tracks.v3',
             array_map(static fn (PilotTrack $track): array => $track->toArray(), $tracks),
             Config::get('vatsimdata.datafeed_history_ttl', 86400),
         );

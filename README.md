@@ -28,6 +28,7 @@ All cache entries are internal and use Laravel's configured cache store. The def
 | `VATSIM_DATAFEED_STALE_CACHE_TTL` | 86400 seconds | How long the last known-good datafeed remains available during an invalid upstream response |
 | `VATSIM_DATAFEED_HISTORY_COUNT` | 5 | Movement points retained per pilot |
 | `VATSIM_DATAFEED_HISTORY_TTL` | 86400 seconds | Lifetime of pilot movement history |
+| `VATSIM_DATAFEED_INACTIVE_HISTORY_TTL` | 600 seconds | Keep a disconnected pilot's recent points for a short reconnect |
 | `VATSIM_METAR_CACHE_TTL` | 300 seconds | METAR responses per two-character ICAO prefix |
 | `VATSIM_METAR_URL` | `https://metar.vatsim.net` | METAR API base URL |
 | `VATSIM_TRANSCEIVER_CACHE_TTL` | 120 seconds | Transceiver data and controller transceiver lookups |
@@ -75,11 +76,12 @@ $controllers = Datafeed::ControllersForAerodrome('EDDF');
 
 `PilotTracksForCids()` hydrates only the requested track points. Track cache
 entries are stored as arrays under a versioned key, so old serialized object
-entries are naturally ignored after package updates.
+entries are naturally ignored after package updates. Refresh removes the old,
+unbounded history and track cache entries when moving to the bounded keys.
 
 ### Refresh worker and movement history
 
-The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Backtracking caused by a sharp slowdown is clamped so the predicted path never reverses behind the latest valid point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
+The package registers `vatsimdata:refresh`, which fetches the feed immediately, refreshes the main datafeed cache, and appends the current position of every pilot to a bounded history keyed by VATSIM CID. The default history contains the latest five actual points per pilot and removes pilots who have been offline for ten minutes. `PilotTracks()` returns a `PilotTrack` for each CID. Each track contains the actual points and five predicted points at exactly 5, 10, 15, 20, and 25 seconds after the latest point. The predicted path follows a local quadratic fitted through the latest three actual positions, so recent turns are carried into the short projection. Backtracking caused by a sharp slowdown is clamped so the predicted path never reverses behind the latest valid point. Predicted points have `predicted === true`; actual points have `predicted === false`. Every point contains latitude, longitude, altitude, groundspeed, heading, and `recorded_at`.
 
 Run it from Laravel's scheduler, for example in `routes/console.php`:
 
@@ -335,10 +337,10 @@ Record history by scheduling the built-in refresh command at the interval your a
 ```php
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('vatsimdata:refresh')->everyFifteenSeconds();
+Schedule::command('vatsimdata:refresh')->everyFifteenSeconds()->withoutOverlapping(1);
 ```
 
-The command refreshes the datafeed cache and stores a compact position history per VATSIM CID. History length and retention are controlled by `VATSIM_DATAFEED_HISTORY_COUNT` (default `5`) and `VATSIM_DATAFEED_HISTORY_TTL` (default `86400` seconds).
+The command refreshes the datafeed cache and stores a compact position history per VATSIM CID. History length and cache lifetime are controlled by `VATSIM_DATAFEED_HISTORY_COUNT` (default `5`) and `VATSIM_DATAFEED_HISTORY_TTL` (default `86400` seconds). `VATSIM_DATAFEED_INACTIVE_HISTORY_TTL` (default `600` seconds) limits how long disconnected pilots remain in the refreshed history.
 
 ## License
 

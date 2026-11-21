@@ -11,6 +11,7 @@ return [
     'datafeed_stale_cache_ttl' => env('VATSIM_DATAFEED_STALE_CACHE_TTL', 86400),
     'datafeed_history_count' => env('VATSIM_DATAFEED_HISTORY_COUNT', 5),
     'datafeed_history_ttl' => env('VATSIM_DATAFEED_HISTORY_TTL', 86400),
+    'datafeed_inactive_history_ttl' => env('VATSIM_DATAFEED_INACTIVE_HISTORY_TTL', 600),
     'metar_cache_ttl' => env('VATSIM_METAR_CACHE_TTL', 300),
     'transceiver_cache_ttl' => env('VATSIM_TRANSCEIVER_CACHE_TTL', 120),
     'aerodrome_summary_cache_ttl' => env('VATSIM_AERODROME_SUMMARY_CACHE_TTL', 60),
